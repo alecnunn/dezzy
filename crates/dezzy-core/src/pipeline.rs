@@ -13,6 +13,20 @@ fn primitive_to_hir_type(prim: HirPrimitiveType) -> HirType {
         HirPrimitiveType::I16 => HirType::I16,
         HirPrimitiveType::I32 => HirType::I32,
         HirPrimitiveType::I64 => HirType::I64,
+        HirPrimitiveType::U1 => HirType::U1,
+        HirPrimitiveType::U2 => HirType::U2,
+        HirPrimitiveType::U3 => HirType::U3,
+        HirPrimitiveType::U4 => HirType::U4,
+        HirPrimitiveType::U5 => HirType::U5,
+        HirPrimitiveType::U6 => HirType::U6,
+        HirPrimitiveType::U7 => HirType::U7,
+        HirPrimitiveType::I1 => HirType::I1,
+        HirPrimitiveType::I2 => HirType::I2,
+        HirPrimitiveType::I3 => HirType::I3,
+        HirPrimitiveType::I4 => HirType::I4,
+        HirPrimitiveType::I5 => HirType::I5,
+        HirPrimitiveType::I6 => HirType::I6,
+        HirPrimitiveType::I7 => HirType::I7,
     }
 }
 
@@ -69,21 +83,36 @@ impl Pipeline {
             field_name_to_var.insert(field.name.clone(), field_var);
 
             let type_info = self.hir_type_to_string(&field.field_type);
+
+            // Convert Skip enum to Option<String> for LIR (just for metadata)
+            let skip_marker = field.skip.as_ref().map(|_| "skip".to_string());
+
             lir_fields.push(LirField {
                 name: field.name.clone(),
                 doc: field.doc.clone(),
                 var_id: field_var,
                 type_info,
                 assertion: field.assertion.clone(),
-                skip: field.skip.clone(),
+                skip: skip_marker,
             });
 
-            // If this is a skip field, generate Skip operation instead of read
-            if let Some(ref skip_field) = field.skip {
-                let size_var = *field_name_to_var.get(skip_field).ok_or_else(|| {
-                    PipelineError::UnknownType(format!("Skip size field '{}' not found", skip_field))
-                })?;
-                read_ops.push(LirOperation::Skip { size_var });
+            // If this is a skip/pad/align field, generate appropriate operation instead of read
+            if let Some(ref skip) = field.skip {
+                use crate::hir::Skip;
+                match skip {
+                    Skip::Variable(size_field) => {
+                        let size_var = *field_name_to_var.get(size_field).ok_or_else(|| {
+                            PipelineError::UnknownType(format!("Skip size field '{}' not found", size_field))
+                        })?;
+                        read_ops.push(LirOperation::Skip { size_var });
+                    }
+                    Skip::Fixed(bytes) => {
+                        read_ops.push(LirOperation::PadFixed { bytes: *bytes });
+                    }
+                    Skip::Align(boundary) => {
+                        read_ops.push(LirOperation::Align { boundary: *boundary });
+                    }
+                }
             } else {
                 let read_op = self.lower_read_type(&field.field_type, field_var, format, &field_name_to_var)?;
                 read_ops.push(read_op);
@@ -139,6 +168,20 @@ impl Pipeline {
             HirType::I16 => "i16".to_string(),
             HirType::I32 => "i32".to_string(),
             HirType::I64 => "i64".to_string(),
+            HirType::U1 => "u1".to_string(),
+            HirType::U2 => "u2".to_string(),
+            HirType::U3 => "u3".to_string(),
+            HirType::U4 => "u4".to_string(),
+            HirType::U5 => "u5".to_string(),
+            HirType::U6 => "u6".to_string(),
+            HirType::U7 => "u7".to_string(),
+            HirType::I1 => "i1".to_string(),
+            HirType::I2 => "i2".to_string(),
+            HirType::I3 => "i3".to_string(),
+            HirType::I4 => "i4".to_string(),
+            HirType::I5 => "i5".to_string(),
+            HirType::I6 => "i6".to_string(),
+            HirType::I7 => "i7".to_string(),
             HirType::Array { element_type, size } => {
                 format!("{}[{}]", self.hir_type_to_string(element_type), size)
             }
@@ -194,6 +237,21 @@ impl Pipeline {
                 dest,
                 endianness: format.endianness,
             },
+            // Bitfield types
+            HirType::U1 => LirOperation::ReadBits { dest, num_bits: 1, signed: false },
+            HirType::U2 => LirOperation::ReadBits { dest, num_bits: 2, signed: false },
+            HirType::U3 => LirOperation::ReadBits { dest, num_bits: 3, signed: false },
+            HirType::U4 => LirOperation::ReadBits { dest, num_bits: 4, signed: false },
+            HirType::U5 => LirOperation::ReadBits { dest, num_bits: 5, signed: false },
+            HirType::U6 => LirOperation::ReadBits { dest, num_bits: 6, signed: false },
+            HirType::U7 => LirOperation::ReadBits { dest, num_bits: 7, signed: false },
+            HirType::I1 => LirOperation::ReadBits { dest, num_bits: 1, signed: true },
+            HirType::I2 => LirOperation::ReadBits { dest, num_bits: 2, signed: true },
+            HirType::I3 => LirOperation::ReadBits { dest, num_bits: 3, signed: true },
+            HirType::I4 => LirOperation::ReadBits { dest, num_bits: 4, signed: true },
+            HirType::I5 => LirOperation::ReadBits { dest, num_bits: 5, signed: true },
+            HirType::I6 => LirOperation::ReadBits { dest, num_bits: 6, signed: true },
+            HirType::I7 => LirOperation::ReadBits { dest, num_bits: 7, signed: true },
             HirType::Array { element_type, size } => {
                 let dummy_var = self.next_var();
                 let element_op = self.lower_read_type(element_type, dummy_var, format, field_map)?;
@@ -306,6 +364,21 @@ impl Pipeline {
                 src,
                 endianness: format.endianness,
             },
+            // Bitfield types
+            HirType::U1 => LirOperation::WriteBits { src, num_bits: 1 },
+            HirType::U2 => LirOperation::WriteBits { src, num_bits: 2 },
+            HirType::U3 => LirOperation::WriteBits { src, num_bits: 3 },
+            HirType::U4 => LirOperation::WriteBits { src, num_bits: 4 },
+            HirType::U5 => LirOperation::WriteBits { src, num_bits: 5 },
+            HirType::U6 => LirOperation::WriteBits { src, num_bits: 6 },
+            HirType::U7 => LirOperation::WriteBits { src, num_bits: 7 },
+            HirType::I1 => LirOperation::WriteBits { src, num_bits: 1 },
+            HirType::I2 => LirOperation::WriteBits { src, num_bits: 2 },
+            HirType::I3 => LirOperation::WriteBits { src, num_bits: 3 },
+            HirType::I4 => LirOperation::WriteBits { src, num_bits: 4 },
+            HirType::I5 => LirOperation::WriteBits { src, num_bits: 5 },
+            HirType::I6 => LirOperation::WriteBits { src, num_bits: 6 },
+            HirType::I7 => LirOperation::WriteBits { src, num_bits: 7 },
             HirType::Array { element_type, size } => {
                 let dummy_var = self.next_var();
                 let element_op = self.lower_write_type(element_type, dummy_var, format, field_map)?;

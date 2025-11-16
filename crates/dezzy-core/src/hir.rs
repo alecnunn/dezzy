@@ -6,6 +6,7 @@ pub struct HirFormat {
     pub name: String,
     pub version: Option<String>,
     pub endianness: Endianness,
+    pub bit_order: BitOrder,
     pub enums: Vec<HirEnum>,
     pub types: Vec<HirTypeDef>,
 }
@@ -35,6 +36,21 @@ pub enum HirPrimitiveType {
     I16,
     I32,
     I64,
+    // Bitfield types (sub-byte)
+    U1,
+    U2,
+    U3,
+    U4,
+    U5,
+    U6,
+    U7,
+    I1,
+    I2,
+    I3,
+    I4,
+    I5,
+    I6,
+    I7,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -55,8 +71,18 @@ pub struct HirField {
     pub doc: Option<String>,
     pub field_type: HirType,
     pub assertion: Option<HirAssertion>,
-    /// If set, skip N bytes instead of reading into field (N comes from this field reference)
-    pub skip: Option<String>,
+    /// If set, skip/pad bytes instead of reading into field
+    pub skip: Option<Skip>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum Skip {
+    /// Skip bytes determined by another field (e.g., skip: padding_size)
+    Variable(String),
+    /// Skip fixed number of bytes (e.g., padding: 4)
+    Fixed(usize),
+    /// Align to N-byte boundary (e.g., align: 8)
+    Align(usize),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -99,6 +125,21 @@ pub enum HirType {
     I16,
     I32,
     I64,
+    // Bitfield types (sub-byte)
+    U1,
+    U2,
+    U3,
+    U4,
+    U5,
+    U6,
+    U7,
+    I1,
+    I2,
+    I3,
+    I4,
+    I5,
+    I6,
+    I7,
     Array {
         element_type: Box<HirType>,
         size: usize,
@@ -139,6 +180,14 @@ pub enum Endianness {
     Native,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BitOrder {
+    /// Most significant bit first (network byte order for bits)
+    Msb,
+    /// Least significant bit first (x86 style)
+    Lsb,
+}
+
 impl HirType {
     pub fn size_in_bytes(&self) -> Option<usize> {
         match self {
@@ -146,6 +195,11 @@ impl HirType {
             HirType::U16 | HirType::I16 => Some(2),
             HirType::U32 | HirType::I32 => Some(4),
             HirType::U64 | HirType::I64 => Some(8),
+            // Bitfield types don't have a fixed size in bytes
+            HirType::U1 | HirType::U2 | HirType::U3 | HirType::U4
+            | HirType::U5 | HirType::U6 | HirType::U7
+            | HirType::I1 | HirType::I2 | HirType::I3 | HirType::I4
+            | HirType::I5 | HirType::I6 | HirType::I7 => None,
             HirType::Array { element_type, size } => {
                 element_type.size_in_bytes().map(|elem_size| elem_size * size)
             }
@@ -172,6 +226,20 @@ impl HirType {
                 | HirType::I16
                 | HirType::I32
                 | HirType::I64
+                | HirType::U1
+                | HirType::U2
+                | HirType::U3
+                | HirType::U4
+                | HirType::U5
+                | HirType::U6
+                | HirType::U7
+                | HirType::I1
+                | HirType::I2
+                | HirType::I3
+                | HirType::I4
+                | HirType::I5
+                | HirType::I6
+                | HirType::I7
         )
     }
 }

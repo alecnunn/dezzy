@@ -5,6 +5,7 @@ pub struct YamlFormat {
     pub name: String,
     pub version: Option<String>,
     pub endianness: Option<String>,
+    pub bit_order: Option<String>,
     #[serde(default)]
     pub enums: Vec<YamlEnum>,
     pub types: Vec<YamlTypeDef>,
@@ -38,4 +39,6 @@ pub struct YamlField {
     #[serde(rename = "assert")]
     pub assertion: Option<serde_yaml::Value>,
     pub skip: Option<String>,
+    pub padding: Option<usize>,
+    pub align: Option<usize>,
 }

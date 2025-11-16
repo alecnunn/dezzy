@@ -100,6 +100,17 @@ pub enum LirOperation {
     Skip {
         size_var: VarId,
     },
+    PadFixed {
+        bytes: usize,
+    },
+    Align {
+        boundary: usize,
+    },
+    ReadBits {
+        dest: VarId,
+        num_bits: u8,
+        signed: bool,
+    },
     ReadStruct {
         dest: VarId,
         type_name: String,
@@ -166,6 +177,10 @@ pub enum LirOperation {
     },
     WriteBlob {
         src: VarId,
+    },
+    WriteBits {
+        src: VarId,
+        num_bits: u8,
     },
     WriteStruct {
         src: VarId,

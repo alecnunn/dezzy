@@ -2,8 +2,8 @@ use crate::error::ParseError;
 use crate::expr_parser::parse_expr;
 use crate::schema::{YamlEnum, YamlField, YamlFormat, YamlTypeDef};
 use dezzy_core::hir::{
-    Endianness, HirAssertion, HirAssertValue, HirEnum, HirEnumValue, HirField, HirFormat,
-    HirPrimitiveType, HirStruct, HirType, HirTypeDef,
+    BitOrder, Endianness, HirAssertion, HirAssertValue, HirEnum, HirEnumValue, HirField,
+    HirFormat, HirPrimitiveType, HirStruct, HirType, HirTypeDef, Skip,
 };
 use std::collections::HashSet;
 
@@ -11,6 +11,7 @@ pub fn parse_format(yaml_content: &str) -> Result<HirFormat, ParseError> {
     let yaml_format: YamlFormat = serde_yaml::from_str(yaml_content)?;
 
     let endianness = parse_endianness(yaml_format.endianness.as_deref())?;
+    let bit_order = parse_bit_order(yaml_format.bit_order.as_deref())?;
 
     // Parse enums first
     let mut enum_names = HashSet::new();
@@ -41,6 +42,7 @@ pub fn parse_format(yaml_content: &str) -> Result<HirFormat, ParseError> {
         name: yaml_format.name,
         version: yaml_format.version,
         endianness,
+        bit_order,
         enums: hir_enums,
         types: hir_types,
     })
@@ -95,6 +97,21 @@ fn parse_primitive_type(type_str: &str) -> Result<HirPrimitiveType, ParseError> 
         "i16" => Ok(HirPrimitiveType::I16),
         "i32" => Ok(HirPrimitiveType::I32),
         "i64" => Ok(HirPrimitiveType::I64),
+        // Bitfield types
+        "u1" => Ok(HirPrimitiveType::U1),
+        "u2" => Ok(HirPrimitiveType::U2),
+        "u3" => Ok(HirPrimitiveType::U3),
+        "u4" => Ok(HirPrimitiveType::U4),
+        "u5" => Ok(HirPrimitiveType::U5),
+        "u6" => Ok(HirPrimitiveType::U6),
+        "u7" => Ok(HirPrimitiveType::U7),
+        "i1" => Ok(HirPrimitiveType::I1),
+        "i2" => Ok(HirPrimitiveType::I2),
+        "i3" => Ok(HirPrimitiveType::I3),
+        "i4" => Ok(HirPrimitiveType::I4),
+        "i5" => Ok(HirPrimitiveType::I5),
+        "i6" => Ok(HirPrimitiveType::I6),
+        "i7" => Ok(HirPrimitiveType::I7),
         _ => Err(ParseError::InvalidValue {
             field: "type".to_string(),
             message: format!("Unknown primitive type '{}'", type_str),
@@ -110,6 +127,17 @@ fn parse_endianness(endianness: Option<&str>) -> Result<Endianness, ParseError> 
         Some(other) => Err(ParseError::InvalidValue {
             field: "endianness".to_string(),
             message: format!("Unknown endianness '{}', expected 'little', 'big', or 'native'", other),
+        }),
+    }
+}
+
+fn parse_bit_order(bit_order: Option<&str>) -> Result<BitOrder, ParseError> {
+    match bit_order {
+        None | Some("msb") => Ok(BitOrder::Msb),
+        Some("lsb") => Ok(BitOrder::Lsb),
+        Some(other) => Err(ParseError::InvalidValue {
+            field: "bit_order".to_string(),
+            message: format!("Unknown bit_order '{}', expected 'msb' or 'lsb'", other),
         }),
     }
 }
@@ -156,12 +184,23 @@ fn parse_field(
         None
     };
 
+    // Parse skip/padding/align directives
+    let skip = if let Some(ref skip_field) = field.skip {
+        Some(Skip::Variable(skip_field.clone()))
+    } else if let Some(padding_bytes) = field.padding {
+        Some(Skip::Fixed(padding_bytes))
+    } else if let Some(align_boundary) = field.align {
+        Some(Skip::Align(align_boundary))
+    } else {
+        None
+    };
+
     Ok(HirField {
         name: field.name.clone(),
         doc: field.doc.clone(),
         field_type,
         assertion,
-        skip: field.skip.clone(),
+        skip,
     })
 }
 
@@ -390,6 +429,21 @@ fn parse_type(
         "i16" => HirType::I16,
         "i32" => HirType::I32,
         "i64" => HirType::I64,
+        // Bitfield types
+        "u1" => HirType::U1,
+        "u2" => HirType::U2,
+        "u3" => HirType::U3,
+        "u4" => HirType::U4,
+        "u5" => HirType::U5,
+        "u6" => HirType::U6,
+        "u7" => HirType::U7,
+        "i1" => HirType::I1,
+        "i2" => HirType::I2,
+        "i3" => HirType::I3,
+        "i4" => HirType::I4,
+        "i5" => HirType::I5,
+        "i6" => HirType::I6,
+        "i7" => HirType::I7,
         other => {
             if enum_names.contains(other) {
                 HirType::Enum(other.to_string())
