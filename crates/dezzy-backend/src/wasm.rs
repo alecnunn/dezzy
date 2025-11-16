@@ -55,9 +55,9 @@ impl WasmBackend {
     }
 
     fn call_string_fn(instance: &Instance, store: &mut Store, fn_name: &str) -> Result<String> {
-        // For this initial implementation, we expect a simple ABI where:
-        // - Strings are returned as (ptr: i32, len: i32)
-        // - The function allocates and returns a pointer to memory
+        // The WASM function returns a packed i64:
+        // - Low 32 bits: pointer
+        // - High 32 bits: length
 
         let func = instance.exports.get_function(fn_name)
             .context(format!("Function '{}' not found in WASM module", fn_name))?;
@@ -65,13 +65,16 @@ impl WasmBackend {
         let result = func.call(store, &[])
             .context(format!("Failed to call {}", fn_name))?;
 
-        // Expect (ptr, len) return
-        if result.len() < 2 {
-            anyhow::bail!("{} returned invalid result (expected ptr and len)", fn_name);
+        // Expect single i64 return value
+        if result.len() != 1 {
+            anyhow::bail!("{} returned {} values (expected 1: packed i64)", fn_name, result.len());
         }
 
-        let ptr = result[0].i32().ok_or_else(|| anyhow::anyhow!("Invalid pointer"))?;
-        let len = result[1].i32().ok_or_else(|| anyhow::anyhow!("Invalid length"))?;
+        let packed = result[0].i64().ok_or_else(|| anyhow::anyhow!("Invalid return type: {:?}", result[0]))?;
+
+        // Unpack: low 32 bits = ptr, high 32 bits = len
+        let ptr = (packed & 0xFFFFFFFF) as i32;
+        let len = (packed >> 32) as i32;
 
         // Read from WASM linear memory
         let memory = instance.exports.get_memory("memory")
@@ -123,9 +126,10 @@ impl WasmBackend {
         let result = generate_fn.call(&mut store, &[ptr.into(), json_len.into()])
             .context("Failed to call generate")?;
 
-        // Read result (ptr, len)
-        let result_ptr = result[0].i32().ok_or_else(|| anyhow::anyhow!("Invalid result pointer"))?;
-        let result_len = result[1].i32().ok_or_else(|| anyhow::anyhow!("Invalid result length"))?;
+        // Read result (packed i64)
+        let packed = result[0].i64().ok_or_else(|| anyhow::anyhow!("Invalid result type"))?;
+        let result_ptr = (packed & 0xFFFFFFFF) as i32;
+        let result_len = (packed >> 32) as i32;
 
         let mut output = vec![0u8; result_len as usize];
         {

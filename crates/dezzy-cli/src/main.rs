@@ -1,11 +1,12 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use dezzy_backend::PluginRegistry;
+use dezzy_backend::{PluginRegistry, WasmBackend};
 use dezzy_backend_cpp::CppBackend;
 use dezzy_core::pipeline::Pipeline;
 use dezzy_parser::parse_format;
+use serde::Deserialize;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 #[derive(Parser)]
@@ -32,6 +33,22 @@ enum Commands {
         #[arg(help = "Input format definition file")]
         input: String,
     },
+    #[command(about = "List all available code generation backends")]
+    ListBackends,
+}
+
+#[derive(Debug, Deserialize)]
+struct PluginMetadata {
+    name: String,
+    version: String,
+    path: String,
+    description: String,
+    author: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct PluginManifest {
+    plugin: Vec<PluginMetadata>,
 }
 
 fn main() -> Result<()> {
@@ -44,7 +61,72 @@ fn main() -> Result<()> {
             output,
         } => compile_command(&input, &backend, &output),
         Commands::Validate { input } => validate_command(&input),
+        Commands::ListBackends => list_backends_command(),
     }
+}
+
+fn discover_backends() -> Result<PluginRegistry> {
+    let mut registry = PluginRegistry::new();
+
+    // Register built-in C++ backend
+    registry.register(Arc::new(CppBackend::new()));
+
+    // Try to load plugin manifest
+    let manifest_path = PathBuf::from("plugins/manifest.toml");
+    if !manifest_path.exists() {
+        // No plugins, that's fine - just use built-in backends
+        return Ok(registry);
+    }
+
+    let manifest_content = fs::read_to_string(&manifest_path)
+        .context("Failed to read plugin manifest")?;
+
+    let manifest: PluginManifest = toml::from_str(&manifest_content)
+        .context("Failed to parse plugin manifest")?;
+
+    // Load each plugin
+    for plugin_meta in manifest.plugin {
+        let plugin_path = PathBuf::from("plugins").join(&plugin_meta.path);
+
+        match WasmBackend::from_file(&plugin_path) {
+            Ok(backend) => {
+                println!("Loaded plugin: {} v{}", plugin_meta.name, plugin_meta.version);
+                registry.register(Arc::new(backend));
+            }
+            Err(e) => {
+                eprintln!(
+                    "Warning: Failed to load plugin '{}': {}",
+                    plugin_meta.name, e
+                );
+            }
+        }
+    }
+
+    Ok(registry)
+}
+
+fn list_backends_command() -> Result<()> {
+    println!("Available backends:\n");
+
+    // Built-in backends
+    println!("Built-in:");
+    println!("  cpp - C++ header-only code generator");
+
+    // Plugin backends
+    let manifest_path = PathBuf::from("plugins/manifest.toml");
+    if manifest_path.exists() {
+        let manifest_content = fs::read_to_string(&manifest_path)?;
+        let manifest: PluginManifest = toml::from_str(&manifest_content)?;
+
+        if !manifest.plugin.is_empty() {
+            println!("\nPlugins:");
+            for plugin in manifest.plugin {
+                println!("  {} (v{}) - {}", plugin.name, plugin.version, plugin.description);
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn compile_command(input_path: &str, backend_name: &str, output_dir: &str) -> Result<()> {
@@ -69,8 +151,9 @@ fn compile_command(input_path: &str, backend_name: &str, output_dir: &str) -> Re
 
     println!("Lowered to LIR with {} types", lir_format.types.len());
 
-    let mut registry = PluginRegistry::new();
-    registry.register(Arc::new(CppBackend::new()));
+    // Discover and load all available backends
+    let registry = discover_backends()
+        .context("Failed to discover backends")?;
 
     let generated = registry
         .generate(backend_name, &lir_format)

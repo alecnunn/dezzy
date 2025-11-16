@@ -26,3 +26,7 @@ Thumbs.db
 
 # Plugin WASMs (built from source)
 /plugins/**/*.wasm
+
+# Python
+__pycache__/
+*.pyc

@@ -18,3 +18,5 @@ dezzy-backend-cpp = { workspace = true }
 clap = { workspace = true }
 anyhow = { workspace = true }
 ariadne = { workspace = true }
+serde = { workspace = true }
+toml = { workspace = true }

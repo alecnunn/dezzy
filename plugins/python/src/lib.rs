@@ -16,42 +16,48 @@ pub extern "C" fn alloc(size: i32) -> *mut u8 {
 }
 
 /// Get backend name
-/// Returns (ptr, len) tuple
+/// Returns packed (ptr, len) as i64: high 32 bits = len, low 32 bits = ptr
 #[no_mangle]
-pub extern "C" fn get_name() -> (i32, i32) {
+pub extern "C" fn get_name() -> i64 {
     let name = b"python";
     unsafe {
         LAST_ALLOCATION = name.to_vec();
-        (LAST_ALLOCATION.as_ptr() as i32, LAST_ALLOCATION.len() as i32)
+        pack_ptr_len(LAST_ALLOCATION.as_ptr() as i32, LAST_ALLOCATION.len() as i32)
     }
 }
 
 /// Get backend version
-/// Returns (ptr, len) tuple
+/// Returns packed (ptr, len) as i64
 #[no_mangle]
-pub extern "C" fn get_version() -> (i32, i32) {
+pub extern "C" fn get_version() -> i64 {
     let version = b"0.1.0";
     unsafe {
         LAST_ALLOCATION = version.to_vec();
-        (LAST_ALLOCATION.as_ptr() as i32, LAST_ALLOCATION.len() as i32)
+        pack_ptr_len(LAST_ALLOCATION.as_ptr() as i32, LAST_ALLOCATION.len() as i32)
     }
 }
 
 /// Get file extension for generated code
-/// Returns (ptr, len) tuple
+/// Returns packed (ptr, len) as i64
 #[no_mangle]
-pub extern "C" fn get_file_extension() -> (i32, i32) {
+pub extern "C" fn get_file_extension() -> i64 {
     let ext = b"py";
     unsafe {
         LAST_ALLOCATION = ext.to_vec();
-        (LAST_ALLOCATION.as_ptr() as i32, LAST_ALLOCATION.len() as i32)
+        pack_ptr_len(LAST_ALLOCATION.as_ptr() as i32, LAST_ALLOCATION.len() as i32)
     }
 }
 
+/// Pack pointer and length into a single i64
+/// Low 32 bits: pointer, High 32 bits: length
+fn pack_ptr_len(ptr: i32, len: i32) -> i64 {
+    ((len as i64) << 32) | (ptr as i64 & 0xFFFFFFFF)
+}
+
 /// Generate Python code from LIR JSON
-/// Returns (ptr, len) tuple
+/// Returns packed (ptr, len) as i64
 #[no_mangle]
-pub extern "C" fn generate(lir_ptr: i32, lir_len: i32) -> (i32, i32) {
+pub extern "C" fn generate(lir_ptr: i32, lir_len: i32) -> i64 {
     // Read LIR JSON from memory
     let lir_json = unsafe {
         let bytes = slice::from_raw_parts(lir_ptr as *const u8, lir_len as usize);
@@ -65,7 +71,7 @@ pub extern "C" fn generate(lir_ptr: i32, lir_len: i32) -> (i32, i32) {
             let error_msg = format!("Failed to parse LIR: {}", e);
             unsafe {
                 LAST_ALLOCATION = error_msg.into_bytes();
-                return (LAST_ALLOCATION.as_ptr() as i32, LAST_ALLOCATION.len() as i32);
+                return pack_ptr_len(LAST_ALLOCATION.as_ptr() as i32, LAST_ALLOCATION.len() as i32);
             }
         }
     };
@@ -77,7 +83,7 @@ pub extern "C" fn generate(lir_ptr: i32, lir_len: i32) -> (i32, i32) {
             let error_msg = format!("Code generation failed: {}", e);
             unsafe {
                 LAST_ALLOCATION = error_msg.into_bytes();
-                return (LAST_ALLOCATION.as_ptr() as i32, LAST_ALLOCATION.len() as i32);
+                return pack_ptr_len(LAST_ALLOCATION.as_ptr() as i32, LAST_ALLOCATION.len() as i32);
             }
         }
     };
@@ -85,7 +91,7 @@ pub extern "C" fn generate(lir_ptr: i32, lir_len: i32) -> (i32, i32) {
     // Store result and return pointer
     unsafe {
         LAST_ALLOCATION = code.into_bytes();
-        (LAST_ALLOCATION.as_ptr() as i32, LAST_ALLOCATION.len() as i32)
+        pack_ptr_len(LAST_ALLOCATION.as_ptr() as i32, LAST_ALLOCATION.len() as i32)
     }
 }
 
@@ -128,14 +134,16 @@ fn generate_type(lir_type: &LirType, endianness: Endianness) -> Result<String, S
 
     // read() method
     code.push_str(&format!("    @staticmethod\n"));
-    code.push_str(&format!("    def read(data: bytes, offset: int = 0) -> tuple['{}', int]:\n", lir_type.name));
+    code.push_str(&format!("    def read(buffer: bytes, offset: int = 0) -> tuple['{}', int]:\n", lir_type.name));
     code.push_str(&format!("        \"\"\"Read {} from bytes. Returns (instance, bytes_read)\"\"\"\n", lir_type.name));
     code.push_str(&format!("        pos = offset\n"));
 
     // Generate read logic based on operations
     code.push_str(&generate_read_impl(lir_type, endianness)?);
 
-    code.push_str(&format!("        return {}, pos - offset\n", lir_type.name));
+    // Create instance with collected fields
+    let field_names: Vec<_> = lir_type.fields.iter().map(|f| f.name.as_str()).collect();
+    code.push_str(&format!("        return {}({}), pos - offset\n", lir_type.name, field_names.join(", ")));
 
     code.push_str("\n");
 
@@ -210,11 +218,11 @@ fn generate_read_impl(lir_type: &LirType, endianness: Endianness) -> Result<Stri
         } else if is_primitive(type_info) {
             // Primitive type
             let fmt = type_to_format(type_info);
-            code.push_str(&format!("        {} = struct.unpack_from('{}{}', data, pos)[0]\n", field_name, endian_char, fmt));
+            code.push_str(&format!("        {} = struct.unpack_from('{}{}', buffer, pos)[0]\n", field_name, endian_char, fmt));
             code.push_str(&format!("        pos += struct.calcsize('{}{}')\n", endian_char, fmt));
         } else {
             // User-defined type
-            code.push_str(&format!("        {}, bytes_read = {}.read(data, pos)\n", field_name, type_info));
+            code.push_str(&format!("        {}, bytes_read = {}.read(buffer, pos)\n", field_name, type_info));
             code.push_str(&format!("        pos += bytes_read\n"));
         }
     }
@@ -258,9 +266,9 @@ fn generate_write_impl(lir_type: &LirType, endianness: Endianness) -> Result<Str
 fn generate_read_element(element_type: &str, endian_char: char) -> String {
     if is_primitive(element_type) {
         let fmt = type_to_format(element_type);
-        format!("struct.unpack_from('{}{}', data, pos)[0]", endian_char, fmt)
+        format!("struct.unpack_from('{}{}', buffer, pos)[0]", endian_char, fmt)
     } else {
-        format!("{}.read(data, pos)[0]", element_type)
+        format!("{}.read(buffer, pos)[0]", element_type)
     }
 }
 
