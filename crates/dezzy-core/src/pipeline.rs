@@ -101,6 +101,11 @@ impl Pipeline {
         let write_param = self.next_var();
 
         for (idx, field) in struct_def.fields.iter().enumerate() {
+            // Skip fields with skip directive - they should not be written
+            if field.skip.is_some() {
+                continue;
+            }
+
             let field_var = self.next_var();
             write_ops.push(LirOperation::AccessField {
                 dest: field_var,

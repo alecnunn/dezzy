@@ -1,0 +1,41 @@
+name: TestContainer
+endianness: little
+
+types:
+  - name: FileEntry
+    type: struct
+    fields:
+      - name: filename_len
+        type: u8
+        doc: "Length of filename"
+      - name: filename
+        type: str(filename_len)
+        doc: "Variable-length filename"
+      - name: file_size
+        type: u32
+        doc: "Size of file data in bytes"
+      - name: file_data
+        type: blob(file_size)
+        doc: "Raw file contents"
+      - name: padding_size
+        type: u16
+        doc: "Bytes of padding to skip"
+      - name: _padding
+        skip: padding_size
+        type: u8  # Type doesn't matter for skip fields
+        doc: "Alignment padding (skipped)"
+
+  - name: Container
+    type: struct
+    fields:
+      - name: magic
+        type: u32
+        doc: "Magic number"
+        assert:
+          equals: 0x434E5452  # "CNTR"
+      - name: num_entries
+        type: u16
+        doc: "Number of file entries"
+      - name: entries
+        type: FileEntry[num_entries]
+        doc: "File entries"
