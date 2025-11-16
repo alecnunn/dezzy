@@ -1,0 +1,31 @@
+name: NestedReversed
+version: "1.0"
+endianness: little
+
+types:
+  - name: Document
+    type: struct
+    doc: "Document containing rectangles"
+    fields:
+      - name: version
+        type: u16
+      - name: bounds
+        type: Rectangle
+
+  - name: Rectangle
+    type: struct
+    doc: "Rectangle defined by two points"
+    fields:
+      - name: top_left
+        type: Point
+      - name: bottom_right
+        type: Point
+
+  - name: Point
+    type: struct
+    doc: "2D point coordinate"
+    fields:
+      - name: x
+        type: u32
+      - name: y
+        type: u32

@@ -3,6 +3,7 @@ use anyhow::Result;
 use dezzy_backend::{Backend, GeneratedCode, GeneratedFile};
 use dezzy_core::hir::Endianness;
 use dezzy_core::lir::{LirField, LirFormat, LirOperation, LirType, VarId};
+use dezzy_core::topo_sort::topological_sort;
 use std::collections::HashMap;
 
 pub struct CppBackend;
@@ -290,11 +291,14 @@ impl Backend for CppBackend {
     }
 
     fn generate(&self, lir: &LirFormat) -> Result<GeneratedCode> {
-        let namespace = lir.name.to_lowercase().replace('-', "_");
+        let mut lir_sorted = lir.clone();
+        topological_sort(&mut lir_sorted)?;
+
+        let namespace = lir_sorted.name.to_lowercase().replace('-', "_");
         let mut code = templates::generate_header_start(&namespace);
 
-        for lir_type in &lir.types {
-            code.push_str(&self.generate_type(lir_type, lir.endianness)?);
+        for lir_type in &lir_sorted.types {
+            code.push_str(&self.generate_type(lir_type, lir_sorted.endianness)?);
         }
 
         code.push_str(&templates::generate_header_end(&namespace));

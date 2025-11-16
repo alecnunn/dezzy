@@ -1,0 +1,20 @@
+name: CircularTest
+version: "1.0"
+endianness: little
+
+types:
+  - name: NodeA
+    type: struct
+    fields:
+      - name: value
+        type: u32
+      - name: next
+        type: NodeB
+
+  - name: NodeB
+    type: struct
+    fields:
+      - name: value
+        type: u32
+      - name: back
+        type: NodeA

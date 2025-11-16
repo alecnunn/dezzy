@@ -1,0 +1,43 @@
+name: NestedFormat
+version: "1.0"
+endianness: little
+
+types:
+  - name: Point
+    type: struct
+    doc: "2D point coordinate"
+    fields:
+      - name: x
+        type: u32
+        doc: "X coordinate"
+      - name: y
+        type: u32
+        doc: "Y coordinate"
+
+  - name: Rectangle
+    type: struct
+    doc: "Rectangle defined by two points"
+    fields:
+      - name: top_left
+        type: Point
+        doc: "Top-left corner"
+      - name: bottom_right
+        type: Point
+        doc: "Bottom-right corner"
+      - name: color
+        type: u32
+        doc: "RGBA color value"
+
+  - name: Document
+    type: struct
+    doc: "Document containing rectangles"
+    fields:
+      - name: version
+        type: u16
+        doc: "Format version"
+      - name: count
+        type: u16
+        doc: "Number of shapes"
+      - name: bounds
+        type: Rectangle
+        doc: "Document bounding box"

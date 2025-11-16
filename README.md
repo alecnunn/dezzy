@@ -15,10 +15,12 @@ Dezzy is an alternative to Kaitai Struct, written in Rust, that provides:
 ### Current (v0.1)
 - Basic type definitions (u8, u16, u32, u64, i8, i16, i32, i64)
 - Fixed-size arrays
-- Struct types
+- Struct types with full nesting support
+- Automatic dependency ordering (topological sort)
+- Circular dependency detection
 - Explicit endianness control (little, big, native)
 - Read and write operations
-- C++17 backend with header-only output
+- C++20 backend with header-only output
 
 ### Planned
 - Conditional parsing
@@ -53,6 +55,7 @@ dezzy compile examples/simple.yaml --backend cpp --output generated/
 
 ## Format Definition Example
 
+### Simple Format
 ```yaml
 name: SimpleFormat
 version: "1.0"
@@ -85,32 +88,60 @@ types:
         doc: "Fixed-size data payload"
 ```
 
+### Nested Structs
+```yaml
+name: NestedFormat
+version: "1.0"
+endianness: little
+
+types:
+  - name: Point
+    type: struct
+    fields:
+      - name: x
+        type: u32
+      - name: y
+        type: u32
+
+  - name: Rectangle
+    type: struct
+    fields:
+      - name: top_left
+        type: Point
+      - name: bottom_right
+        type: Point
+      - name: color
+        type: u32
+```
+
 ## Generated Code Example
 
-The above format generates a C++17 header with:
+The nested format generates header-only C++20 code with proper dependency ordering:
 
 ```cpp
-namespace simpleformat {
+namespace nestedformat {
 
-struct Header {
-    uint32_t field_0;  // magic
-    uint16_t field_1;  // version
-    uint16_t field_2;  // flags
+struct Point {
+    uint32_t x;
+    uint32_t y;
 
-    static Header read(Reader& reader);
+    static Point read(Reader& reader);
     void write(Writer& writer) const;
 };
 
-struct DataBlock {
-    uint32_t field_0;  // length
-    std::array<uint8_t, 16> field_1;  // data
+struct Rectangle {
+    Point top_left;      // Nested struct
+    Point bottom_right;  // Nested struct
+    uint32_t color;
 
-    static DataBlock read(Reader& reader);
+    static Rectangle read(Reader& reader);
     void write(Writer& writer) const;
 };
 
-} // namespace simpleformat
+} // namespace nestedformat
 ```
+
+Types are automatically ordered so dependencies come first, even if defined in reverse order in the YAML.
 
 ## Project Structure
 

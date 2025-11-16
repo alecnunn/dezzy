@@ -36,7 +36,16 @@ Phase 1: Core Infrastructure - COMPLETE
 - [x] File I/O and error reporting
 - [x] Example format (simple.yaml)
 
-## Recent Updates (Phase 1.8)
+## Recent Updates
+
+### Phase 1.9: Nested Struct Support
+- [x] Implement topological sort for type dependency ordering
+- [x] Support nested user-defined types in structs
+- [x] Detect and report circular dependencies
+- [x] Verify with real C++ compilation and execution
+- [x] Add comprehensive test cases for nested structures
+
+### Phase 1.8: Field Names
 - [x] Use actual field names in generated C++ code
 - [x] Preserve endianness from YAML format to LIR
 - [x] Add field metadata to LIR
@@ -49,8 +58,8 @@ Phase 1: Core Infrastructure - COMPLETE
 - [ ] Improve error messages with ariadne (currently basic)
 
 ### Medium Priority
-- [ ] Support for struct nesting in generated code
 - [ ] Add documentation comments to generated C++ code
+- [ ] Support for C++17 compatibility (currently requires C++20 for std::span)
 - [ ] Create more example formats
 - [ ] Add README with usage examples
 - [ ] Set up CI/CD pipeline
