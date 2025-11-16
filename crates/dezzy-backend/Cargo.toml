@@ -8,7 +8,9 @@ repository.workspace = true
 
 [dependencies]
 dezzy-core = { workspace = true }
-wasmtime = { workspace = true }
+wasmer = { workspace = true }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }

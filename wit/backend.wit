@@ -1,0 +1,18 @@
+package dezzy:backend@0.1.0;
+
+/// Backend generator interface that plugins must implement
+interface generator {
+    /// Generate code from LIR format (serialized as JSON)
+    /// The JSON format matches the Rust LirFormat struct with serde serialization
+    /// Returns generated code as a string
+    generate: func(lir-json: string) -> result<string, string>;
+
+    /// Get backend metadata
+    get-name: func() -> string;
+    get-version: func() -> string;
+    get-file-extension: func() -> string;
+}
+
+world backend-plugin {
+    export generator;
+}

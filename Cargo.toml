@@ -23,6 +23,8 @@ thiserror = "1.0"
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9"
+serde_json = "1.0"
+toml = "0.8"
 
 # CLI
 clap = { version = "4.5", features = ["derive"] }
@@ -31,7 +33,7 @@ clap = { version = "4.5", features = ["derive"] }
 ariadne = "0.4"
 
 # WASM runtime
-wasmtime = "26.0"
+wasmer = "5.0"
 
 # Internal workspace crates
 dezzy-core = { path = "crates/dezzy-core" }
