@@ -54,6 +54,37 @@ pub struct HirField {
     pub name: String,
     pub doc: Option<String>,
     pub field_type: HirType,
+    pub assertion: Option<HirAssertion>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum HirAssertion {
+    /// Value must equal the specified constant
+    Equals(HirAssertValue),
+    /// Value must not equal the specified constant
+    NotEquals(HirAssertValue),
+    /// Value must be greater than the threshold
+    GreaterThan(i64),
+    /// Value must be greater than or equal to the threshold
+    GreaterOrEqual(i64),
+    /// Value must be less than the threshold
+    LessThan(i64),
+    /// Value must be less than or equal to the threshold
+    LessOrEqual(i64),
+    /// Value must be in the specified set
+    In(Vec<i64>),
+    /// Value must not be in the specified set
+    NotIn(Vec<i64>),
+    /// Value must be in the range [min, max] inclusive
+    Range { min: i64, max: i64 },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum HirAssertValue {
+    /// Single integer value
+    Int(i64),
+    /// Array of integer values (for comparing against byte arrays)
+    IntArray(Vec<i64>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

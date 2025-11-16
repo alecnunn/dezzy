@@ -74,6 +74,7 @@ impl Pipeline {
                 doc: field.doc.clone(),
                 var_id: field_var,
                 type_info,
+                assertion: field.assertion.clone(),
             });
 
             let read_op = self.lower_read_type(&field.field_type, field_var, format, &field_name_to_var)?;

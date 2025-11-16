@@ -2,7 +2,7 @@ use crate::expr_codegen::generate_expr;
 use crate::templates;
 use anyhow::Result;
 use dezzy_backend::{Backend, GeneratedCode, GeneratedFile};
-use dezzy_core::hir::{Endianness, HirEnum, HirPrimitiveType};
+use dezzy_core::hir::{Endianness, HirAssertion, HirAssertValue, HirEnum, HirPrimitiveType};
 use dezzy_core::lir::{LirField, LirFormat, LirOperation, LirType, VarId};
 use dezzy_core::topo_sort::topological_sort;
 use std::collections::HashMap;

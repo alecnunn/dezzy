@@ -1,0 +1,32 @@
+name: TestAssert
+endianness: big
+
+types:
+  - name: Header
+    type: struct
+    fields:
+      - name: magic
+        type: u8[4]
+        doc: "Magic number signature"
+        assert:
+          equals: [0x89, 0x50, 0x4E, 0x47]
+      - name: version
+        type: u16
+        doc: "Version number (must be >= 1)"
+        assert:
+          greater_or_equal: 1
+      - name: width
+        type: u32
+        doc: "Image width (must be > 0)"
+        assert:
+          greater_than: 0
+      - name: height
+        type: u32
+        doc: "Image height (must be > 0)"
+        assert:
+          greater_than: 0
+      - name: flags
+        type: u8
+        doc: "Flags field (must be in range 0-7)"
+        assert:
+          range: [0, 7]

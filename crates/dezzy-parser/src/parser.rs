@@ -2,8 +2,8 @@ use crate::error::ParseError;
 use crate::expr_parser::parse_expr;
 use crate::schema::{YamlEnum, YamlField, YamlFormat, YamlTypeDef};
 use dezzy_core::hir::{
-    Endianness, HirEnum, HirEnumValue, HirField, HirFormat, HirPrimitiveType, HirStruct, HirType,
-    HirTypeDef,
+    Endianness, HirAssertion, HirAssertValue, HirEnum, HirEnumValue, HirField, HirFormat,
+    HirPrimitiveType, HirStruct, HirType, HirTypeDef,
 };
 use std::collections::HashSet;
 
@@ -150,12 +150,155 @@ fn parse_field(
     enum_names: &HashSet<String>,
 ) -> Result<HirField, ParseError> {
     let field_type = parse_type(&field.field_type, known_types, enum_names, field.until.as_deref())?;
+    let assertion = if let Some(ref assert_value) = field.assertion {
+        Some(parse_assertion(assert_value, &field.name)?)
+    } else {
+        None
+    };
 
     Ok(HirField {
         name: field.name.clone(),
         doc: field.doc.clone(),
         field_type,
+        assertion,
     })
+}
+
+fn parse_assertion(
+    value: &serde_yaml::Value,
+    field_name: &str,
+) -> Result<HirAssertion, ParseError> {
+    // Handle mapping format: { equals: 42 } or { in: [1, 2, 3] }
+    if let Some(mapping) = value.as_mapping() {
+        if mapping.len() != 1 {
+            return Err(ParseError::InvalidValue {
+                field: format!("assert for field '{}'", field_name),
+                message: "Assertion must have exactly one operation".to_string(),
+            });
+        }
+
+        let (key, val) = mapping.iter().next().unwrap();
+        let key_str = key.as_str().ok_or_else(|| ParseError::InvalidValue {
+            field: format!("assert for field '{}'", field_name),
+            message: "Assertion key must be a string".to_string(),
+        })?;
+
+        match key_str {
+            "equals" => {
+                let assert_val = parse_assert_value(val, field_name)?;
+                Ok(HirAssertion::Equals(assert_val))
+            }
+            "not_equals" => {
+                let assert_val = parse_assert_value(val, field_name)?;
+                Ok(HirAssertion::NotEquals(assert_val))
+            }
+            "greater_than" => {
+                let threshold = parse_int(val, field_name, "greater_than")?;
+                Ok(HirAssertion::GreaterThan(threshold))
+            }
+            "greater_or_equal" => {
+                let threshold = parse_int(val, field_name, "greater_or_equal")?;
+                Ok(HirAssertion::GreaterOrEqual(threshold))
+            }
+            "less_than" => {
+                let threshold = parse_int(val, field_name, "less_than")?;
+                Ok(HirAssertion::LessThan(threshold))
+            }
+            "less_or_equal" => {
+                let threshold = parse_int(val, field_name, "less_or_equal")?;
+                Ok(HirAssertion::LessOrEqual(threshold))
+            }
+            "in" => {
+                let values = parse_int_list(val, field_name, "in")?;
+                Ok(HirAssertion::In(values))
+            }
+            "not_in" => {
+                let values = parse_int_list(val, field_name, "not_in")?;
+                Ok(HirAssertion::NotIn(values))
+            }
+            "range" => {
+                if let Some(seq) = val.as_sequence() {
+                    if seq.len() != 2 {
+                        return Err(ParseError::InvalidValue {
+                            field: format!("assert.range for field '{}'", field_name),
+                            message: "Range must have exactly two values [min, max]".to_string(),
+                        });
+                    }
+                    let min = parse_int(&seq[0], field_name, "range[0]")?;
+                    let max = parse_int(&seq[1], field_name, "range[1]")?;
+                    Ok(HirAssertion::Range { min, max })
+                } else {
+                    Err(ParseError::InvalidValue {
+                        field: format!("assert.range for field '{}'", field_name),
+                        message: "Range must be a sequence [min, max]".to_string(),
+                    })
+                }
+            }
+            _ => Err(ParseError::InvalidValue {
+                field: format!("assert for field '{}'", field_name),
+                message: format!("Unknown assertion type '{}'", key_str),
+            }),
+        }
+    } else {
+        Err(ParseError::InvalidValue {
+            field: format!("assert for field '{}'", field_name),
+            message: "Assertion must be a mapping (e.g., { equals: 42 })".to_string(),
+        })
+    }
+}
+
+fn parse_assert_value(
+    value: &serde_yaml::Value,
+    field_name: &str,
+) -> Result<HirAssertValue, ParseError> {
+    if let Some(seq) = value.as_sequence() {
+        // Array of integers
+        let mut values = Vec::new();
+        for item in seq {
+            values.push(parse_int(item, field_name, "array element")?);
+        }
+        Ok(HirAssertValue::IntArray(values))
+    } else {
+        // Single integer
+        let int_val = parse_int(value, field_name, "value")?;
+        Ok(HirAssertValue::Int(int_val))
+    }
+}
+
+fn parse_int(
+    value: &serde_yaml::Value,
+    field_name: &str,
+    context: &str,
+) -> Result<i64, ParseError> {
+    if let Some(i) = value.as_i64() {
+        Ok(i)
+    } else if let Some(u) = value.as_u64() {
+        Ok(u as i64)
+    } else {
+        Err(ParseError::InvalidValue {
+            field: format!("{} for field '{}'", context, field_name),
+            message: "Value must be an integer".to_string(),
+        })
+    }
+}
+
+fn parse_int_list(
+    value: &serde_yaml::Value,
+    field_name: &str,
+    context: &str,
+) -> Result<Vec<i64>, ParseError> {
+    if let Some(seq) = value.as_sequence() {
+        let mut values = Vec::new();
+        for item in seq {
+            values.push(parse_int(item, field_name, context)?);
+        }
+        Ok(values)
+    } else {
+        Err(ParseError::InvalidValue {
+            field: format!("{} for field '{}'", context, field_name),
+            message: "Value must be a sequence".to_string(),
+        })
+    }
 }
 
 fn parse_type(

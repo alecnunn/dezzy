@@ -1,5 +1,5 @@
 use crate::expr::Expr;
-use crate::hir::{Endianness, HirEnum};
+use crate::hir::{Endianness, HirAssertion, HirEnum};
 use serde::{Deserialize, Serialize};
 
 pub type VarId = usize;
@@ -27,6 +27,7 @@ pub struct LirField {
     pub doc: Option<String>,
     pub var_id: VarId,
     pub type_info: String,
+    pub assertion: Option<HirAssertion>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

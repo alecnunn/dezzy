@@ -35,4 +35,6 @@ pub struct YamlField {
     pub field_type: String,
     pub doc: Option<String>,
     pub until: Option<String>,
+    #[serde(rename = "assert")]
+    pub assertion: Option<serde_yaml::Value>,
 }
