@@ -1,3 +1,4 @@
+use crate::expr::Expr;
 use crate::hir::Endianness;
 use serde::{Deserialize, Serialize};
 
@@ -73,6 +74,11 @@ pub enum LirOperation {
         dest: VarId,
         element_op: Box<LirOperation>,
     },
+    ReadUntilConditionArray {
+        dest: VarId,
+        element_op: Box<LirOperation>,
+        condition: Expr,
+    },
     ReadStruct {
         dest: VarId,
         type_name: String,
@@ -119,6 +125,10 @@ pub enum LirOperation {
         size_field_name: String,
     },
     WriteUntilEofArray {
+        src: VarId,
+        element_op: Box<LirOperation>,
+    },
+    WriteUntilConditionArray {
         src: VarId,
         element_op: Box<LirOperation>,
     },

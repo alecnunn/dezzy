@@ -1,4 +1,5 @@
 use crate::error::ParseError;
+use crate::expr_parser::parse_expr;
 use crate::schema::{YamlField, YamlFormat, YamlTypeDef};
 use dezzy_core::hir::{Endianness, HirField, HirFormat, HirStruct, HirType, HirTypeDef};
 use std::collections::HashSet;
@@ -87,20 +88,24 @@ fn parse_type(type_str: &str, known_types: &HashSet<String>, until: Option<&str>
         // Check if size_spec is empty (for Type[])
         if size_spec.is_empty() {
             // Check for until clause
-            if let Some("eof") = until {
-                // Until-EOF array
-                return Ok(HirType::UntilEofArray {
-                    element_type: Box::new(element_type),
-                });
-            } else if until.is_some() {
-                return Err(ParseError::InvalidValue {
-                    field: "until".to_string(),
-                    message: format!("Unknown until condition '{}', currently only 'eof' is supported", until.unwrap()),
-                });
+            if let Some(until_str) = until {
+                if until_str == "eof" {
+                    // Until-EOF array
+                    return Ok(HirType::UntilEofArray {
+                        element_type: Box::new(element_type),
+                    });
+                } else {
+                    // Until-condition array (parse expression)
+                    let condition = parse_expr(until_str)?;
+                    return Ok(HirType::UntilConditionArray {
+                        element_type: Box::new(element_type),
+                        condition,
+                    });
+                }
             } else {
                 return Err(ParseError::InvalidValue {
                     field: "type".to_string(),
-                    message: "Array with empty size [] requires an 'until' clause (e.g., 'until: eof')".to_string(),
+                    message: "Array with empty size [] requires an 'until' clause (e.g., 'until: eof' or 'until: <expression>')".to_string(),
                 });
             }
         }

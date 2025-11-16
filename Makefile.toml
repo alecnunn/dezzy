@@ -1,0 +1,41 @@
+[tasks.build-python-plugin]
+description = "Build Python WASM plugin"
+cwd = "plugins/python"
+command = "cargo"
+args = ["build", "--release", "--target", "wasm32-unknown-unknown"]
+
+[tasks.copy-python-plugin]
+description = "Copy Python plugin to correct location"
+dependencies = ["build-python-plugin"]
+script_runner = "cmd"
+script = '''
+copy target\\wasm32-unknown-unknown\\release\\python.wasm plugins\\python\\python_backend.wasm
+'''
+
+[tasks.build-all]
+description = "Build entire project including plugins"
+workspace = false
+dependencies = ["build", "copy-python-plugin"]
+
+[tasks.build]
+description = "Build core workspace"
+command = "cargo"
+args = ["build", "--workspace"]
+workspace = false
+
+[tasks.test]
+description = "Run tests"
+command = "cargo"
+args = ["test"]
+
+[tasks.clean]
+description = "Clean all build artifacts"
+command = "cargo"
+args = ["clean"]
+
+[tasks.clean-all]
+description = "Clean including plugin artifacts"
+dependencies = ["clean"]
+script = '''
+cd plugins\\python && cargo clean
+'''

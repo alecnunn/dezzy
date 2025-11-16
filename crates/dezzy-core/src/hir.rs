@@ -1,3 +1,4 @@
+use crate::expr::Expr;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -48,6 +49,10 @@ pub enum HirType {
     UntilEofArray {
         element_type: Box<HirType>,
     },
+    UntilConditionArray {
+        element_type: Box<HirType>,
+        condition: Expr,
+    },
     UserDefined(String),
 }
 
@@ -70,6 +75,7 @@ impl HirType {
             }
             HirType::DynamicArray { .. } => None,
             HirType::UntilEofArray { .. } => None,
+            HirType::UntilConditionArray { .. } => None,
             HirType::UserDefined(_) => None,
         }
     }

@@ -1,3 +1,4 @@
+use crate::expr_codegen::generate_expr;
 use crate::templates;
 use anyhow::Result;
 use dezzy_backend::{Backend, GeneratedCode, GeneratedFile};
@@ -163,6 +164,18 @@ impl CppBackend {
                 array_code.push_str("    }\n");
                 array_code
             }
+            LirOperation::ReadUntilConditionArray { dest, element_op, condition } => {
+                let field_name = var_to_field.get(dest).map(|s| s.as_str()).unwrap_or("unknown");
+                let mut array_code = String::from("    do {\n");
+                let element_read = self.generate_array_element_read(element_op, endianness)?;
+                array_code.push_str(&format!("        result.{}.push_back({});\n", field_name, element_read));
+                array_code.push_str("    } while (");
+                // Generate condition - negated because we continue while condition is false
+                let condition_code = generate_expr(condition, &format!("result.{}", field_name))?;
+                array_code.push_str(&format!("!{}", condition_code));
+                array_code.push_str(");\n");
+                array_code
+            }
             LirOperation::ReadStruct { dest, type_name } => {
                 let field_name = var_to_field.get(dest).map(|s| s.as_str()).unwrap_or("unknown");
                 format!("    result.{} = {}::read(reader);\n", field_name, type_name)
@@ -279,6 +292,15 @@ impl CppBackend {
                 array_code
             }
             LirOperation::WriteUntilEofArray { src, element_op } => {
+                let field_name = var_to_field.get(src).map(|s| s.as_str()).unwrap_or("unknown");
+                let mut array_code = format!("    for (size_t i = 0; i < {}.size(); ++i) {{\n", field_name);
+                let element_write = self.generate_array_element_write(element_op, field_name, endianness)?;
+                array_code.push_str(&format!("        {};\n", element_write));
+                array_code.push_str("    }\n");
+                array_code
+            }
+            LirOperation::WriteUntilConditionArray { src, element_op } => {
+                // Same as WriteUntilEofArray - just write all elements in the array
                 let field_name = var_to_field.get(src).map(|s| s.as_str()).unwrap_or("unknown");
                 let mut array_code = format!("    for (size_t i = 0; i < {}.size(); ++i) {{\n", field_name);
                 let element_write = self.generate_array_element_write(element_op, field_name, endianness)?;

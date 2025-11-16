@@ -22,6 +22,8 @@ Thumbs.db
 # Generated code examples
 /examples/generated/
 /examples/**/*.hpp/
+/examples/png.hpp
+/examples/png.py
 *.exe
 
 # Plugin WASMs (built from source)

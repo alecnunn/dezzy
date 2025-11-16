@@ -1,5 +1,8 @@
+mod expr_codegen;
+
 use dezzy_core::hir::Endianness;
 use dezzy_core::lir::{LirFormat, LirType};
+use expr_codegen::generate_expr;
 use serde_json;
 use std::alloc::{alloc as system_alloc, Layout};
 use std::slice;
@@ -138,8 +141,14 @@ fn generate_type(lir_type: &LirType, endianness: Endianness) -> Result<String, S
     code.push_str(&format!("        \"\"\"Read {} from bytes. Returns (instance, bytes_read)\"\"\"\n", lir_type.name));
     code.push_str(&format!("        pos = offset\n"));
 
+    // Build var_id to field name mapping
+    let mut var_to_field = std::collections::HashMap::new();
+    for field in &lir_type.fields {
+        var_to_field.insert(field.var_id, field.name.clone());
+    }
+
     // Generate read logic based on operations
-    code.push_str(&generate_read_impl(lir_type, endianness)?);
+    code.push_str(&generate_read_from_operations(&lir_type.operations, &var_to_field, endianness)?);
 
     // Create instance with collected fields
     let field_names: Vec<_> = lir_type.fields.iter().map(|f| f.name.as_str()).collect();
@@ -176,6 +185,191 @@ fn lir_type_to_python(type_str: &str) -> String {
         "u32" | "i32" => "int".to_string(),
         "u64" | "i64" => "int".to_string(),
         other => other.to_string(), // User-defined type
+    }
+}
+
+use dezzy_core::lir::LirOperation;
+use std::collections::HashMap;
+
+fn generate_read_from_operations(
+    operations: &[LirOperation],
+    var_to_field: &HashMap<usize, String>,
+    endianness: Endianness,
+) -> Result<String, String> {
+    let mut code = String::new();
+
+    for op in operations {
+        // Stop processing when we hit CreateStruct (marks end of read operations)
+        if matches!(op, LirOperation::CreateStruct { .. }) {
+            break;
+        }
+
+        match op {
+            LirOperation::ReadU8 { dest } => {
+                let field_name = var_to_field.get(dest).ok_or("Unknown var_id")?;
+                code.push_str(&format!("        {} = struct.unpack_from('B', buffer, pos)[0]\n", field_name));
+                code.push_str("        pos += 1\n");
+            }
+            LirOperation::ReadU16 { dest, .. } => {
+                let field_name = var_to_field.get(dest).ok_or("Unknown var_id")?;
+                let endian_char = endian_to_char(endianness);
+                code.push_str(&format!("        {} = struct.unpack_from('{}H', buffer, pos)[0]\n", field_name, endian_char));
+                code.push_str("        pos += 2\n");
+            }
+            LirOperation::ReadU32 { dest, .. } => {
+                let field_name = var_to_field.get(dest).ok_or("Unknown var_id")?;
+                let endian_char = endian_to_char(endianness);
+                code.push_str(&format!("        {} = struct.unpack_from('{}I', buffer, pos)[0]\n", field_name, endian_char));
+                code.push_str("        pos += 4\n");
+            }
+            LirOperation::ReadU64 { dest, .. } => {
+                let field_name = var_to_field.get(dest).ok_or("Unknown var_id")?;
+                let endian_char = endian_to_char(endianness);
+                code.push_str(&format!("        {} = struct.unpack_from('{}Q', buffer, pos)[0]\n", field_name, endian_char));
+                code.push_str("        pos += 8\n");
+            }
+            LirOperation::ReadI8 { dest } => {
+                let field_name = var_to_field.get(dest).ok_or("Unknown var_id")?;
+                code.push_str(&format!("        {} = struct.unpack_from('b', buffer, pos)[0]\n", field_name));
+                code.push_str("        pos += 1\n");
+            }
+            LirOperation::ReadI16 { dest, .. } => {
+                let field_name = var_to_field.get(dest).ok_or("Unknown var_id")?;
+                let endian_char = endian_to_char(endianness);
+                code.push_str(&format!("        {} = struct.unpack_from('{}h', buffer, pos)[0]\n", field_name, endian_char));
+                code.push_str("        pos += 2\n");
+            }
+            LirOperation::ReadI32 { dest, .. } => {
+                let field_name = var_to_field.get(dest).ok_or("Unknown var_id")?;
+                let endian_char = endian_to_char(endianness);
+                code.push_str(&format!("        {} = struct.unpack_from('{}i', buffer, pos)[0]\n", field_name, endian_char));
+                code.push_str("        pos += 4\n");
+            }
+            LirOperation::ReadI64 { dest, .. } => {
+                let field_name = var_to_field.get(dest).ok_or("Unknown var_id")?;
+                let endian_char = endian_to_char(endianness);
+                code.push_str(&format!("        {} = struct.unpack_from('{}q', buffer, pos)[0]\n", field_name, endian_char));
+                code.push_str("        pos += 8\n");
+            }
+            LirOperation::ReadArray { dest, element_op, count } => {
+                let field_name = var_to_field.get(dest).ok_or("Unknown var_id")?;
+                code.push_str(&format!("        {} = []\n", field_name));
+                code.push_str(&format!("        for _ in range({}):\n", count));
+                code.push_str(&generate_array_element_read_multiline(element_op, field_name, endianness, 3)?);
+            }
+            LirOperation::ReadDynamicArray { dest, element_op, size_var } => {
+                let field_name = var_to_field.get(dest).ok_or("Unknown var_id")?;
+                let size_field = var_to_field.get(size_var).ok_or("Unknown size var_id")?;
+                code.push_str(&format!("        {} = []\n", field_name));
+                code.push_str(&format!("        for _ in range({}):\n", size_field));
+                code.push_str(&generate_array_element_read_multiline(element_op, field_name, endianness, 3)?);
+            }
+            LirOperation::ReadUntilEofArray { dest, element_op } => {
+                let field_name = var_to_field.get(dest).ok_or("Unknown var_id")?;
+                code.push_str(&format!("        {} = []\n", field_name));
+                code.push_str("        while pos < len(buffer):\n");
+                code.push_str(&generate_array_element_read_multiline(element_op, field_name, endianness, 3)?);
+            }
+            LirOperation::ReadUntilConditionArray { dest, element_op, condition } => {
+                let field_name = var_to_field.get(dest).ok_or("Unknown var_id")?;
+                code.push_str(&format!("        {} = []\n", field_name));
+                code.push_str("        while True:\n");
+                code.push_str(&generate_array_element_read_multiline(element_op, field_name, endianness, 3)?);
+                let condition_code = generate_expr(condition, field_name)?;
+                code.push_str(&format!("            if {}:\n", condition_code));
+                code.push_str("                break\n");
+            }
+            LirOperation::ReadStruct { dest, type_name } => {
+                let field_name = var_to_field.get(dest).ok_or("Unknown var_id")?;
+                code.push_str(&format!("        {}, bytes_read = {}.read(buffer, pos)\n", field_name, type_name));
+                code.push_str("        pos += bytes_read\n");
+            }
+            LirOperation::CreateStruct { .. } | LirOperation::AccessField { .. } => {
+                // These operations are handled implicitly in Python
+                // CreateStruct: we just return the collected fields
+                // AccessField: fields are directly accessible as self.field_name
+            }
+            _ => {
+                return Err(format!("Unsupported read operation: {:?}", op));
+            }
+        }
+    }
+
+    Ok(code)
+}
+
+fn generate_array_element_read_multiline(
+    element_op: &LirOperation,
+    array_name: &str,
+    endianness: Endianness,
+    indent_level: usize,
+) -> Result<String, String> {
+    let indent = "    ".repeat(indent_level);
+    let mut code = String::new();
+
+    match element_op {
+        LirOperation::ReadU8 { .. } => {
+            code.push_str(&format!("{}val = struct.unpack_from('B', buffer, pos)[0]\n", indent));
+            code.push_str(&format!("{}pos += 1\n", indent));
+            code.push_str(&format!("{}{}.append(val)\n", indent, array_name));
+        }
+        LirOperation::ReadU16 { .. } => {
+            let endian_char = endian_to_char(endianness);
+            code.push_str(&format!("{}val = struct.unpack_from('{}H', buffer, pos)[0]\n", indent, endian_char));
+            code.push_str(&format!("{}pos += 2\n", indent));
+            code.push_str(&format!("{}{}.append(val)\n", indent, array_name));
+        }
+        LirOperation::ReadU32 { .. } => {
+            let endian_char = endian_to_char(endianness);
+            code.push_str(&format!("{}val = struct.unpack_from('{}I', buffer, pos)[0]\n", indent, endian_char));
+            code.push_str(&format!("{}pos += 4\n", indent));
+            code.push_str(&format!("{}{}.append(val)\n", indent, array_name));
+        }
+        LirOperation::ReadU64 { .. } => {
+            let endian_char = endian_to_char(endianness);
+            code.push_str(&format!("{}val = struct.unpack_from('{}Q', buffer, pos)[0]\n", indent, endian_char));
+            code.push_str(&format!("{}pos += 8\n", indent));
+            code.push_str(&format!("{}{}.append(val)\n", indent, array_name));
+        }
+        LirOperation::ReadI8 { .. } => {
+            code.push_str(&format!("{}val = struct.unpack_from('b', buffer, pos)[0]\n", indent));
+            code.push_str(&format!("{}pos += 1\n", indent));
+            code.push_str(&format!("{}{}.append(val)\n", indent, array_name));
+        }
+        LirOperation::ReadI16 { .. } => {
+            let endian_char = endian_to_char(endianness);
+            code.push_str(&format!("{}val = struct.unpack_from('{}h', buffer, pos)[0]\n", indent, endian_char));
+            code.push_str(&format!("{}pos += 2\n", indent));
+            code.push_str(&format!("{}{}.append(val)\n", indent, array_name));
+        }
+        LirOperation::ReadI32 { .. } => {
+            let endian_char = endian_to_char(endianness);
+            code.push_str(&format!("{}val = struct.unpack_from('{}i', buffer, pos)[0]\n", indent, endian_char));
+            code.push_str(&format!("{}pos += 4\n", indent));
+            code.push_str(&format!("{}{}.append(val)\n", indent, array_name));
+        }
+        LirOperation::ReadI64 { .. } => {
+            let endian_char = endian_to_char(endianness);
+            code.push_str(&format!("{}val = struct.unpack_from('{}q', buffer, pos)[0]\n", indent, endian_char));
+            code.push_str(&format!("{}pos += 8\n", indent));
+            code.push_str(&format!("{}{}.append(val)\n", indent, array_name));
+        }
+        LirOperation::ReadStruct { type_name, .. } => {
+            code.push_str(&format!("{}val, bytes_read = {}.read(buffer, pos)\n", indent, type_name));
+            code.push_str(&format!("{}pos += bytes_read\n", indent));
+            code.push_str(&format!("{}{}.append(val)\n", indent, array_name));
+        }
+        _ => return Err(format!("Unsupported array element operation: {:?}", element_op))
+    }
+
+    Ok(code)
+}
+
+fn endian_to_char(endianness: Endianness) -> char {
+    match endianness {
+        Endianness::Little => '<',
+        Endianness::Big => '>',
+        Endianness::Native => '=',
     }
 }
 

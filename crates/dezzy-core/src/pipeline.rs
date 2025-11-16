@@ -119,6 +119,9 @@ impl Pipeline {
             HirType::UntilEofArray { element_type } => {
                 format!("{}[]", self.hir_type_to_string(element_type))
             }
+            HirType::UntilConditionArray { element_type, .. } => {
+                format!("{}[]", self.hir_type_to_string(element_type))
+            }
             HirType::UserDefined(name) => name.clone(),
         }
     }
@@ -184,6 +187,15 @@ impl Pipeline {
                 LirOperation::ReadUntilEofArray {
                     dest,
                     element_op: Box::new(element_op),
+                }
+            }
+            HirType::UntilConditionArray { element_type, condition } => {
+                let dummy_var = self.next_var();
+                let element_op = self.lower_read_type(element_type, dummy_var, format, field_map)?;
+                LirOperation::ReadUntilConditionArray {
+                    dest,
+                    element_op: Box::new(element_op),
+                    condition: condition.clone(),
                 }
             }
             HirType::UserDefined(name) => LirOperation::ReadStruct {
@@ -253,6 +265,14 @@ impl Pipeline {
                 let dummy_var = self.next_var();
                 let element_op = self.lower_write_type(element_type, dummy_var, format, field_map)?;
                 LirOperation::WriteUntilEofArray {
+                    src,
+                    element_op: Box::new(element_op),
+                }
+            }
+            HirType::UntilConditionArray { element_type, .. } => {
+                let dummy_var = self.next_var();
+                let element_op = self.lower_write_type(element_type, dummy_var, format, field_map)?;
+                LirOperation::WriteUntilConditionArray {
                     src,
                     element_op: Box::new(element_op),
                 }

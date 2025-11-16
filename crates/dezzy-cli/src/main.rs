@@ -129,7 +129,7 @@ fn list_backends_command() -> Result<()> {
     Ok(())
 }
 
-fn compile_command(input_path: &str, backend_name: &str, output_dir: &str) -> Result<()> {
+fn compile_command(input_path: &str, backend_name: &str, output_spec: &str) -> Result<()> {
     let yaml_content = fs::read_to_string(input_path)
         .with_context(|| format!("Failed to read input file: {}", input_path))?;
 
@@ -159,14 +159,30 @@ fn compile_command(input_path: &str, backend_name: &str, output_dir: &str) -> Re
         .generate(backend_name, &lir_format)
         .with_context(|| format!("Backend '{}' failed to generate code", backend_name))?;
 
-    let output_path = Path::new(output_dir);
-    fs::create_dir_all(output_path)
-        .with_context(|| format!("Failed to create output directory: {}", output_dir))?;
+    let output_path = Path::new(output_spec);
+
+    // Determine if output_spec is a file or directory
+    // If it has an extension, treat it as a file path
+    let (output_dir, override_filename) = if output_path.extension().is_some() {
+        // It's a file path - extract directory and filename
+        let dir = output_path.parent().unwrap_or_else(|| Path::new("."));
+        let filename = output_path.file_name()
+            .and_then(|n| n.to_str())
+            .map(|s| s.to_string());
+        (dir, filename)
+    } else {
+        // It's a directory
+        (output_path, None)
+    };
+
+    fs::create_dir_all(output_dir)
+        .with_context(|| format!("Failed to create output directory: {}", output_dir.display()))?;
 
     for file in generated.files {
-        let file_path = output_path.join(&file.path);
+        let filename = override_filename.as_ref().unwrap_or(&file.path);
+        let file_path = output_dir.join(filename);
         fs::write(&file_path, file.content)
-            .with_context(|| format!("Failed to write output file: {}", file.path))?;
+            .with_context(|| format!("Failed to write output file: {}", file_path.display()))?;
         println!("Generated: {}", file_path.display());
     }
 
