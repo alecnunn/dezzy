@@ -1,0 +1,14 @@
+[package]
+name = "dezzy-backend"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+dezzy-core = { workspace = true }
+wasmtime = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true }

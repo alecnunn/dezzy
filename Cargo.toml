@@ -1,0 +1,40 @@
+[workspace]
+members = [
+    "crates/dezzy-core",
+    "crates/dezzy-parser",
+    "crates/dezzy-backend",
+    "crates/dezzy-backend-cpp",
+    "crates/dezzy-cli",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Alec Nunn"]
+license = "MIT"
+repository = "https://github.com/alecnunn/dezzy"
+
+[workspace.dependencies]
+# Core dependencies
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.9"
+
+# CLI
+clap = { version = "4.5", features = ["derive"] }
+
+# Error reporting
+ariadne = "0.4"
+
+# WASM runtime
+wasmtime = "26.0"
+
+# Internal workspace crates
+dezzy-core = { path = "crates/dezzy-core" }
+dezzy-parser = { path = "crates/dezzy-parser" }
+dezzy-backend = { path = "crates/dezzy-backend" }
+dezzy-backend-cpp = { path = "crates/dezzy-backend-cpp" }

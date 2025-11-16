@@ -1,0 +1,9 @@
+# Dezzy Backend Plugin Registry
+# Plugins are WASM components implementing the dezzy:backend interface
+
+[[plugin]]
+name = "python"
+version = "0.1.0"
+path = "python/python_backend.wasm"
+description = "Python code generator with type hints and dataclasses"
+author = "Alec Nunn"

@@ -1,0 +1,198 @@
+use crate::hir::{HirFormat, HirStruct, HirType, HirTypeDef};
+use crate::lir::{LirFormat, LirOperation, LirType, VarId};
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum PipelineError {
+    #[error("Unknown type reference: {0}")]
+    UnknownType(String),
+    #[error("Recursive type reference: {0}")]
+    RecursiveType(String),
+}
+
+pub struct Pipeline {
+    next_var_id: VarId,
+}
+
+impl Pipeline {
+    pub fn new() -> Self {
+        Self { next_var_id: 0 }
+    }
+
+    pub fn lower(&mut self, hir: HirFormat) -> Result<LirFormat, PipelineError> {
+        let mut lir_types = Vec::new();
+
+        for type_def in &hir.types {
+            match type_def {
+                HirTypeDef::Struct(struct_def) => {
+                    let lir_type = self.lower_struct(struct_def, &hir)?;
+                    lir_types.push(lir_type);
+                }
+            }
+        }
+
+        Ok(LirFormat {
+            name: hir.name,
+            types: lir_types,
+        })
+    }
+
+    fn lower_struct(
+        &mut self,
+        struct_def: &HirStruct,
+        format: &HirFormat,
+    ) -> Result<LirType, PipelineError> {
+        let mut read_ops = Vec::new();
+        let mut field_vars = Vec::new();
+
+        for field in &struct_def.fields {
+            let field_var = self.next_var();
+            field_vars.push(field_var);
+
+            let read_op = self.lower_read_type(&field.field_type, field_var, format)?;
+            read_ops.push(read_op);
+        }
+
+        let result_var = self.next_var();
+        read_ops.push(LirOperation::CreateStruct {
+            dest: result_var,
+            type_name: struct_def.name.clone(),
+            fields: field_vars.clone(),
+        });
+
+        let mut write_ops = Vec::new();
+        let write_param = self.next_var();
+
+        for (idx, field) in struct_def.fields.iter().enumerate() {
+            let field_var = self.next_var();
+            write_ops.push(LirOperation::AccessField {
+                dest: field_var,
+                struct_var: write_param,
+                field_index: idx,
+            });
+
+            let write_op = self.lower_write_type(&field.field_type, field_var, format)?;
+            write_ops.push(write_op);
+        }
+
+        let mut all_ops = read_ops;
+        all_ops.extend(write_ops);
+
+        Ok(LirType {
+            name: struct_def.name.clone(),
+            operations: all_ops,
+            read_result: result_var,
+            write_param,
+        })
+    }
+
+    fn lower_read_type(
+        &mut self,
+        ty: &HirType,
+        dest: VarId,
+        format: &HirFormat,
+    ) -> Result<LirOperation, PipelineError> {
+        Ok(match ty {
+            HirType::U8 => LirOperation::ReadU8 { dest },
+            HirType::U16 => LirOperation::ReadU16 {
+                dest,
+                endianness: format.endianness,
+            },
+            HirType::U32 => LirOperation::ReadU32 {
+                dest,
+                endianness: format.endianness,
+            },
+            HirType::U64 => LirOperation::ReadU64 {
+                dest,
+                endianness: format.endianness,
+            },
+            HirType::I8 => LirOperation::ReadI8 { dest },
+            HirType::I16 => LirOperation::ReadI16 {
+                dest,
+                endianness: format.endianness,
+            },
+            HirType::I32 => LirOperation::ReadI32 {
+                dest,
+                endianness: format.endianness,
+            },
+            HirType::I64 => LirOperation::ReadI64 {
+                dest,
+                endianness: format.endianness,
+            },
+            HirType::Array { element_type, size } => {
+                let dummy_var = self.next_var();
+                let element_op = self.lower_read_type(element_type, dummy_var, format)?;
+                LirOperation::ReadArray {
+                    dest,
+                    element_op: Box::new(element_op),
+                    count: *size,
+                }
+            }
+            HirType::UserDefined(name) => LirOperation::ReadStruct {
+                dest,
+                type_name: name.clone(),
+            },
+        })
+    }
+
+    fn lower_write_type(
+        &mut self,
+        ty: &HirType,
+        src: VarId,
+        format: &HirFormat,
+    ) -> Result<LirOperation, PipelineError> {
+        Ok(match ty {
+            HirType::U8 => LirOperation::WriteU8 { src },
+            HirType::U16 => LirOperation::WriteU16 {
+                src,
+                endianness: format.endianness,
+            },
+            HirType::U32 => LirOperation::WriteU32 {
+                src,
+                endianness: format.endianness,
+            },
+            HirType::U64 => LirOperation::WriteU64 {
+                src,
+                endianness: format.endianness,
+            },
+            HirType::I8 => LirOperation::WriteI8 { src },
+            HirType::I16 => LirOperation::WriteI16 {
+                src,
+                endianness: format.endianness,
+            },
+            HirType::I32 => LirOperation::WriteI32 {
+                src,
+                endianness: format.endianness,
+            },
+            HirType::I64 => LirOperation::WriteI64 {
+                src,
+                endianness: format.endianness,
+            },
+            HirType::Array { element_type, size } => {
+                let dummy_var = self.next_var();
+                let element_op = self.lower_write_type(element_type, dummy_var, format)?;
+                LirOperation::WriteArray {
+                    src,
+                    element_op: Box::new(element_op),
+                    count: *size,
+                }
+            }
+            HirType::UserDefined(name) => LirOperation::WriteStruct {
+                src,
+                type_name: name.clone(),
+            },
+        })
+    }
+
+    fn next_var(&mut self) -> VarId {
+        let id = self.next_var_id;
+        self.next_var_id += 1;
+        id
+    }
+}
+
+impl Default for Pipeline {
+    fn default() -> Self {
+        Self::new()
+    }
+}

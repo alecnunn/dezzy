@@ -1,0 +1,32 @@
+name: SimpleFormat
+version: "1.0"
+endianness: little
+
+types:
+  - name: Header
+    type: struct
+    doc: "File header containing magic number and version"
+    fields:
+      - name: magic
+        type: u32
+        doc: "Magic number identifying the file format"
+      - name: version
+        type: u16
+        doc: "Format version number"
+      - name: flags
+        type: u16
+        doc: "Format flags"
+
+  - name: DataBlock
+    type: struct
+    doc: "Data block with fixed-size payload"
+    fields:
+      - name: length
+        type: u32
+        doc: "Length of the data block"
+      - name: checksum
+        type: u32
+        doc: "CRC32 checksum"
+      - name: data
+        type: u8[16]
+        doc: "Fixed-size data payload"

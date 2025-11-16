@@ -1,0 +1,20 @@
+[package]
+name = "dezzy-cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "dezzy"
+path = "src/main.rs"
+
+[dependencies]
+dezzy-core = { workspace = true }
+dezzy-parser = { workspace = true }
+dezzy-backend = { workspace = true }
+dezzy-backend-cpp = { workspace = true }
+clap = { workspace = true }
+anyhow = { workspace = true }
+ariadne = { workspace = true }

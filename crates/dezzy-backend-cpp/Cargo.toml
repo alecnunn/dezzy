@@ -1,0 +1,13 @@
+[package]
+name = "dezzy-backend-cpp"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+dezzy-core = { workspace = true }
+dezzy-backend = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
