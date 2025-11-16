@@ -1,0 +1,31 @@
+name: BitfieldTest
+version: "1.0"
+endianness: little
+bit_order: msb
+
+types:
+  # Simple test with just bitfields
+  - name: Flags
+    type: struct
+    doc: "8-bit flags packed into bitfields"
+    fields:
+      - name: version
+        type: u3
+        doc: "Version number (3 bits)"
+
+      - name: compressed
+        type: u1
+        doc: "Compression flag (1 bit)"
+
+      - name: encrypted
+        type: u1
+        doc: "Encryption flag (1 bit)"
+
+      - name: reserved
+        type: u3
+        doc: "Reserved bits (3 bits)"
+
+      # Regular field after bitfields
+      - name: value
+        type: u32
+        doc: "32-bit value"

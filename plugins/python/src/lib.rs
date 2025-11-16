@@ -188,6 +188,16 @@ fn generate_type(lir_type: &LirType, endianness: Endianness, enums: &[HirEnum]) 
 
     code.push_str(&generate_write_impl(lir_type, endianness, enums)?);
 
+    // Flush any remaining bits from BitWriter
+    code.push_str("        \n");
+    code.push_str("        # Flush any remaining bits in BitWriter\n");
+    code.push_str("        if hasattr(self.write, '_bits_used') and self.write._bits_used > 0:\n");
+    code.push_str("            self.write._bit_buffer <<= (8 - self.write._bits_used)\n");
+    code.push_str("            result.extend(struct.pack('B', self.write._bit_buffer))\n");
+    code.push_str("            self.write._bit_buffer = 0\n");
+    code.push_str("            self.write._bits_used = 0\n");
+    code.push_str("        \n");
+
     code.push_str(&format!("        return bytes(result)\n"));
 
     Ok(code)
@@ -225,6 +235,9 @@ fn lir_type_to_python(type_str: &str) -> String {
         "u16" | "i16" => "int".to_string(),
         "u32" | "i32" => "int".to_string(),
         "u64" | "i64" => "int".to_string(),
+        // Bitfield types
+        "u1" | "u2" | "u3" | "u4" | "u5" | "u6" | "u7" => "int".to_string(),
+        "i1" | "i2" | "i3" | "i4" | "i5" | "i6" | "i7" => "int".to_string(),
         other => other.to_string(), // User-defined type
     }
 }
@@ -487,6 +500,44 @@ fn generate_read_from_operations(
                 let size_field = var_to_field.get(size_var).ok_or("Unknown size_var")?;
                 code.push_str(&format!("        pos += {}  # skip\n", size_field));
             }
+            LirOperation::PadFixed { bytes } => {
+                code.push_str(&format!("        pos += {}  # fixed padding\n", bytes));
+            }
+            LirOperation::Align { boundary } => {
+                code.push_str(&format!("        # Align to {}-byte boundary\n", boundary));
+                code.push_str(&format!("        padding = ({} - (pos % {})) % {}\n", boundary, boundary, boundary));
+                code.push_str("        pos += padding\n");
+            }
+            LirOperation::ReadBits { dest, num_bits, signed } => {
+                let field_name = var_to_field.get(dest).ok_or("Unknown var_id")?;
+                code.push_str("        # BitReader state (initialized on first use)\n");
+                code.push_str("        if not hasattr(read, '_bit_buffer'):\n");
+                code.push_str("            read._bit_buffer = 0\n");
+                code.push_str("            read._bits_available = 0\n");
+                code.push_str("        \n");
+                code.push_str(&format!("        # Read {} bits (MSB first)\n", num_bits));
+                code.push_str(&format!("        {} = 0\n", field_name));
+                code.push_str(&format!("        bits_needed = {}\n", num_bits));
+                code.push_str("        while bits_needed > 0:\n");
+                code.push_str("            if read._bits_available == 0:\n");
+                code.push_str("                read._bit_buffer = struct.unpack_from('B', buffer, pos)[0]\n");
+                code.push_str("                pos += 1\n");
+                code.push_str("                read._bits_available = 8\n");
+                code.push_str(&format!("            bits_to_read = min(bits_needed, read._bits_available)\n"));
+                code.push_str(&format!("            {} = ({} << bits_to_read) | ((read._bit_buffer >> (read._bits_available - bits_to_read)) & ((1 << bits_to_read) - 1))\n", field_name, field_name));
+                code.push_str("            read._bits_available -= bits_to_read\n");
+                code.push_str("            bits_needed -= bits_to_read\n");
+                if *signed {
+                    code.push_str(&format!("        # Sign extend if high bit is set\n"));
+                    code.push_str(&format!("        if {} & (1 << ({} - 1)):\n", field_name, num_bits));
+                    code.push_str(&format!("            {} |= ~((1 << {}) - 1)\n", field_name, num_bits));
+                }
+                if let Some(field) = fields.iter().find(|f| f.var_id == *dest) {
+                    if let Some(ref assertion) = field.assertion {
+                        code.push_str(&generate_assertion_check(field_name, assertion));
+                    }
+                }
+            }
             LirOperation::CreateStruct { .. } | LirOperation::AccessField { .. } => {
                 // These operations are handled implicitly in Python
                 // CreateStruct: we just return the collected fields
@@ -728,6 +779,28 @@ fn generate_write_impl(lir_type: &LirType, endianness: Endianness, enums: &[HirE
             } else {
                 code.push_str(&format!("            result.extend(item.write())\n"));
             }
+        } else if is_bitfield(type_info) {
+            // Bitfield type - need bit packing
+            let num_bits = bitfield_num_bits(type_info);
+            code.push_str("        # BitWriter state (initialized on first use)\n");
+            code.push_str("        if not hasattr(self.write, '_bit_buffer'):\n");
+            code.push_str("            self.write._bit_buffer = 0\n");
+            code.push_str("            self.write._bits_used = 0\n");
+            code.push_str("        \n");
+            code.push_str(&format!("        # Write {} bits (MSB first)\n", num_bits));
+            code.push_str(&format!("        value = self.{}\n", field_name));
+            code.push_str(&format!("        bits_to_write = {}\n", num_bits));
+            code.push_str("        while bits_to_write > 0:\n");
+            code.push_str("            bits_this_round = min(bits_to_write, 8 - self.write._bits_used)\n");
+            code.push_str("            bits = (value >> (bits_to_write - bits_this_round)) & ((1 << bits_this_round) - 1)\n");
+            code.push_str("            self.write._bit_buffer = (self.write._bit_buffer << bits_this_round) | bits\n");
+            code.push_str("            self.write._bits_used += bits_this_round\n");
+            code.push_str("            bits_to_write -= bits_this_round\n");
+            code.push_str("            \n");
+            code.push_str("            if self.write._bits_used == 8:\n");
+            code.push_str("                result.extend(struct.pack('B', self.write._bit_buffer))\n");
+            code.push_str("                self.write._bit_buffer = 0\n");
+            code.push_str("                self.write._bits_used = 0\n");
         } else if is_primitive(type_info) {
             let fmt = type_to_format(type_info);
             code.push_str(&format!("        result.extend(struct.pack('{}{}', self.{}))\n", endian_char, fmt, field_name));
@@ -756,6 +829,24 @@ fn is_primitive(type_str: &str) -> bool {
     matches!(type_str, "u8" | "u16" | "u32" | "u64" | "i8" | "i16" | "i32" | "i64")
 }
 
+fn is_bitfield(type_str: &str) -> bool {
+    matches!(type_str, "u1" | "u2" | "u3" | "u4" | "u5" | "u6" | "u7" |
+                       "i1" | "i2" | "i3" | "i4" | "i5" | "i6" | "i7")
+}
+
+fn bitfield_num_bits(type_str: &str) -> u8 {
+    match type_str {
+        "u1" | "i1" => 1,
+        "u2" | "i2" => 2,
+        "u3" | "i3" => 3,
+        "u4" | "i4" => 4,
+        "u5" | "i5" => 5,
+        "u6" | "i6" => 6,
+        "u7" | "i7" => 7,
+        _ => 0,
+    }
+}
+
 fn type_to_format(type_str: &str) -> &'static str {
     match type_str {
         "u8" => "B",
@@ -780,5 +871,12 @@ fn primitive_type_to_format(prim_type: HirPrimitiveType) -> &'static str {
         HirPrimitiveType::I32 => "i",
         HirPrimitiveType::U64 => "Q",
         HirPrimitiveType::I64 => "q",
+        // Bitfield types - map to byte types
+        HirPrimitiveType::U1 | HirPrimitiveType::U2 | HirPrimitiveType::U3
+        | HirPrimitiveType::U4 | HirPrimitiveType::U5 | HirPrimitiveType::U6
+        | HirPrimitiveType::U7 => "B",
+        HirPrimitiveType::I1 | HirPrimitiveType::I2 | HirPrimitiveType::I3
+        | HirPrimitiveType::I4 | HirPrimitiveType::I5 | HirPrimitiveType::I6
+        | HirPrimitiveType::I7 => "b",
     }
 }

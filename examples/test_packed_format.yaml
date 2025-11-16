@@ -1,0 +1,69 @@
+name: PackedFormat
+version: "1.0"
+endianness: little
+bit_order: msb
+
+types:
+  # Test format with bitfields, padding, and alignment
+  - name: PackedHeader
+    type: struct
+    doc: "Header with bit-level flags and aligned data"
+    fields:
+      # Regular field
+      - name: magic
+        type: u32
+        assert: { equals: 0x50414B44 }  # "PAKD"
+
+      # Bitfield flags (total 8 bits = 1 byte)
+      - name: version
+        type: u3
+        doc: "Version number (3 bits)"
+
+      - name: compressed
+        type: u1
+        doc: "Compression flag (1 bit)"
+
+      - name: encrypted
+        type: u1
+        doc: "Encryption flag (1 bit)"
+
+      - name: reserved_bits
+        type: u3
+        doc: "Reserved bits (3 bits)"
+
+      # Fixed padding - 2 bytes of reserved space
+      - name: reserved1
+        padding: 2
+
+      # Regular size field
+      - name: data_size
+        type: u32
+
+      # Align to 8-byte boundary before data pointer
+      - name: alignment1
+        align: 8
+
+      # 64-bit data offset (now 8-byte aligned)
+      - name: data_offset
+        type: u64
+
+      # More bitfields for flags
+      - name: priority
+        type: u2
+        doc: "Priority level (2 bits)"
+
+      - name: status
+        type: i3
+        doc: "Signed status code (3 bits)"
+
+      - name: flags
+        type: u3
+        doc: "Additional flags (3 bits)"
+
+      # Another alignment example
+      - name: alignment2
+        align: 4
+
+      # Final checksum field (4-byte aligned)
+      - name: checksum
+        type: u32

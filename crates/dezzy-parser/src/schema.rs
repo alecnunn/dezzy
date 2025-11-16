@@ -33,7 +33,7 @@ pub struct YamlTypeDef {
 pub struct YamlField {
     pub name: String,
     #[serde(rename = "type")]
-    pub field_type: String,
+    pub field_type: Option<String>,
     pub doc: Option<String>,
     pub until: Option<String>,
     #[serde(rename = "assert")]

@@ -24,6 +24,12 @@ impl CppBackend {
             HirPrimitiveType::I16 => "int16_t",
             HirPrimitiveType::I32 => "int32_t",
             HirPrimitiveType::I64 => "int64_t",
+            // Bitfield types (unusual for enums, but map to uint8_t)
+            HirPrimitiveType::U1 | HirPrimitiveType::U2 | HirPrimitiveType::U3
+            | HirPrimitiveType::U4 | HirPrimitiveType::U5 | HirPrimitiveType::U6
+            | HirPrimitiveType::U7 | HirPrimitiveType::I1 | HirPrimitiveType::I2
+            | HirPrimitiveType::I3 | HirPrimitiveType::I4 | HirPrimitiveType::I5
+            | HirPrimitiveType::I6 | HirPrimitiveType::I7 => "uint8_t",
         };
 
         let mut code = format!("enum class {} : {} {{\n", enum_def.name, underlying_type);
@@ -103,6 +109,9 @@ impl CppBackend {
             "i16" => "int16_t".to_string(),
             "i32" => "int32_t".to_string(),
             "i64" => "int64_t".to_string(),
+            // Bitfield types - map to uint8_t
+            "u1" | "u2" | "u3" | "u4" | "u5" | "u6" | "u7" => "uint8_t".to_string(),
+            "i1" | "i2" | "i3" | "i4" | "i5" | "i6" | "i7" => "int8_t".to_string(),
             other => other.to_string(),
         }
     }
@@ -118,6 +127,12 @@ impl CppBackend {
         let mut enum_types = HashMap::new();
         for enum_def in enums {
             enum_types.insert(enum_def.name.clone(), enum_def.underlying_type);
+        }
+
+        // Check if we need BitReader (if any ReadBits operations exist)
+        let has_read_bits = lir_type.operations.iter().any(|op| matches!(op, LirOperation::ReadBits { .. }));
+        if has_read_bits {
+            code.push_str("    static BitReader bit_reader(reader);\n");
         }
 
         for op in &lir_type.operations {
@@ -453,6 +468,24 @@ impl CppBackend {
                 let size_field = var_to_field.get(size_var).map(|s| s.as_str()).unwrap_or("unknown");
                 format!("    reader.skip(result.{});\n", size_field)
             }
+            LirOperation::PadFixed { bytes } => {
+                format!("    reader.skip({});\n", bytes)
+            }
+            LirOperation::Align { boundary } => {
+                format!("    {{\n        size_t padding = ({} - (reader.position() % {})) % {};\n        reader.skip(padding);\n    }}\n", boundary, boundary, boundary)
+            }
+            LirOperation::ReadBits { dest, num_bits, signed } => {
+                let field_name = var_to_field.get(dest).map(|s| s.as_str()).unwrap_or("unknown");
+                let mut code = String::new();
+                // BitReader is declared at the top of the function
+                if *signed {
+                    code.push_str(&format!("    result.{} = bit_reader.read_signed_bits_msb({});\n", field_name, num_bits));
+                } else {
+                    code.push_str(&format!("    result.{} = bit_reader.read_bits_msb({});\n", field_name, num_bits));
+                }
+                add_assertion(&mut code, dest);
+                code
+            }
             _ => String::new(),
         })
     }
@@ -488,6 +521,12 @@ impl CppBackend {
         let mut enum_types = HashMap::new();
         for enum_def in enums {
             enum_types.insert(enum_def.name.clone(), enum_def.underlying_type);
+        }
+
+        // Check if we need BitWriter (if any WriteBits operations exist)
+        let has_write_bits = lir_type.operations.iter().any(|op| matches!(op, LirOperation::WriteBits { .. }));
+        if has_write_bits {
+            code.push_str("    static BitWriter bit_writer(writer);\n");
         }
 
         for op in &lir_type.operations {
@@ -635,6 +674,13 @@ impl CppBackend {
                 code.push_str(&format!("    for (size_t i = 0; i < {}.size(); ++i) {{\n", field_name));
                 code.push_str(&format!("        writer.write_le({}[i]);\n", field_name));
                 code.push_str("    }\n");
+                code
+            }
+            LirOperation::WriteBits { src, num_bits } => {
+                let field_name = var_to_field.get(src).map(|s| s.as_str()).unwrap_or("unknown");
+                let mut code = String::new();
+                // BitWriter is declared at the top of the function
+                code.push_str(&format!("    bit_writer.write_bits_msb({}, {});\n", field_name, num_bits));
                 code
             }
             _ => String::new(),

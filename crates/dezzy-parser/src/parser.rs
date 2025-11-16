@@ -177,20 +177,30 @@ fn parse_field(
     known_types: &HashSet<String>,
     enum_names: &HashSet<String>,
 ) -> Result<HirField, ParseError> {
-    let field_type = parse_type(&field.field_type, known_types, enum_names, field.until.as_deref())?;
-    let assertion = if let Some(ref assert_value) = field.assertion {
-        Some(parse_assertion(assert_value, &field.name)?)
-    } else {
-        None
-    };
-
-    // Parse skip/padding/align directives
+    // Parse skip/padding/align directives first
     let skip = if let Some(ref skip_field) = field.skip {
         Some(Skip::Variable(skip_field.clone()))
     } else if let Some(padding_bytes) = field.padding {
         Some(Skip::Fixed(padding_bytes))
     } else if let Some(align_boundary) = field.align {
         Some(Skip::Align(align_boundary))
+    } else {
+        None
+    };
+
+    // For padding/align fields without a type, use a dummy type (u8)
+    // The type won't be used since these fields are skipped
+    let field_type = if let Some(ref type_str) = field.field_type {
+        parse_type(type_str, known_types, enum_names, field.until.as_deref())?
+    } else if skip.is_some() {
+        // Padding/align field without explicit type - use u8 as dummy
+        HirType::U8
+    } else {
+        return Err(ParseError::MissingField(format!("Field '{}' must have a type", field.name)));
+    };
+
+    let assertion = if let Some(ref assert_value) = field.assertion {
+        Some(parse_assertion(assert_value, &field.name)?)
     } else {
         None
     };
