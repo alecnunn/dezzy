@@ -1,0 +1,19 @@
+name: TestStrings
+endianness: little
+
+types:
+  - name: FileHeader
+    type: struct
+    fields:
+      - name: signature
+        type: str[4]
+        doc: "Fixed-length signature"
+      - name: name_len
+        type: u8
+        doc: "Length of filename"
+      - name: filename
+        type: str(name_len)
+        doc: "Variable-length filename"
+      - name: path
+        type: cstr
+        doc: "Null-terminated path"
