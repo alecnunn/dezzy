@@ -202,18 +202,36 @@ fn generate_read_impl(lir_type: &LirType, endianness: Endianness) -> Result<Stri
                 // Fixed-size array
                 code.push_str(&format!("        {} = []\n", field_name));
                 code.push_str(&format!("        for _ in range({}):\n", size));
-                let read_elem = generate_read_element(element_type, endian_char);
-                code.push_str(&format!("            val = {}\n", read_elem));
-                code.push_str(&format!("            pos += struct.calcsize('{}{}')\n", endian_char, type_to_format(element_type)));
-                code.push_str(&format!("            {}.append(val)\n", field_name));
+
+                if is_primitive(element_type) {
+                    // Primitive type - use struct.calcsize
+                    let read_elem = generate_read_element(element_type, endian_char);
+                    code.push_str(&format!("            val = {}\n", read_elem));
+                    code.push_str(&format!("            pos += struct.calcsize('{}{}')\n", endian_char, type_to_format(element_type)));
+                    code.push_str(&format!("            {}.append(val)\n", field_name));
+                } else {
+                    // User-defined type - use bytes_read from read() method
+                    code.push_str(&format!("            val, bytes_read = {}.read(buffer, pos)\n", element_type));
+                    code.push_str(&format!("            pos += bytes_read\n"));
+                    code.push_str(&format!("            {}.append(val)\n", field_name));
+                }
             } else {
                 // Dynamic array
                 code.push_str(&format!("        {} = []\n", field_name));
                 code.push_str(&format!("        for _ in range({}):\n", size_str));
-                let read_elem = generate_read_element(element_type, endian_char);
-                code.push_str(&format!("            val = {}\n", read_elem));
-                code.push_str(&format!("            pos += struct.calcsize('{}{}')\n", endian_char, type_to_format(element_type)));
-                code.push_str(&format!("            {}.append(val)\n", field_name));
+
+                if is_primitive(element_type) {
+                    // Primitive type - use struct.calcsize
+                    let read_elem = generate_read_element(element_type, endian_char);
+                    code.push_str(&format!("            val = {}\n", read_elem));
+                    code.push_str(&format!("            pos += struct.calcsize('{}{}')\n", endian_char, type_to_format(element_type)));
+                    code.push_str(&format!("            {}.append(val)\n", field_name));
+                } else {
+                    // User-defined type - use bytes_read from read() method
+                    code.push_str(&format!("            val, bytes_read = {}.read(buffer, pos)\n", element_type));
+                    code.push_str(&format!("            pos += bytes_read\n"));
+                    code.push_str(&format!("            {}.append(val)\n", field_name));
+                }
             }
         } else if is_primitive(type_info) {
             // Primitive type

@@ -1,0 +1,23 @@
+name: Container
+endianness: big
+
+types:
+  - name: Chunk
+    type: struct
+    fields:
+      - name: length
+        type: u32
+      - name: chunk_type
+        type: u8[4]
+      - name: data
+        type: u8[length]
+      - name: crc
+        type: u32
+
+  - name: Container
+    type: struct
+    fields:
+      - name: num_chunks
+        type: u32
+      - name: chunks
+        type: Chunk[num_chunks]

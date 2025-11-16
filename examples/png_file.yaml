@@ -1,0 +1,32 @@
+name: PNGFile
+endianness: big
+
+types:
+  - name: Chunk
+    type: struct
+    fields:
+      - name: length
+        type: u32
+        doc: Length of the data field
+      - name: chunk_type
+        type: u8[4]
+        doc: 4-byte chunk type identifier (e.g., IHDR, IDAT, IEND)
+      - name: data
+        type: u8[length]
+        doc: Variable-length chunk data
+      - name: crc
+        type: u32
+        doc: CRC32 checksum
+
+  - name: PNGFile
+    type: struct
+    fields:
+      - name: signature
+        type: u8[8]
+        doc: PNG signature (137 80 78 71 13 10 26 10)
+      - name: num_chunks
+        type: u32
+        doc: Number of chunks in the file
+      - name: chunks
+        type: Chunk[num_chunks]
+        doc: Array of PNG chunks
