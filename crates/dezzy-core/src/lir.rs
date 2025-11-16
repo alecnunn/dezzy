@@ -69,6 +69,10 @@ pub enum LirOperation {
         element_op: Box<LirOperation>,
         size_var: VarId,
     },
+    ReadUntilEofArray {
+        dest: VarId,
+        element_op: Box<LirOperation>,
+    },
     ReadStruct {
         dest: VarId,
         type_name: String,
@@ -113,6 +117,10 @@ pub enum LirOperation {
         element_op: Box<LirOperation>,
         size_var: VarId,
         size_field_name: String,
+    },
+    WriteUntilEofArray {
+        src: VarId,
+        element_op: Box<LirOperation>,
     },
     WriteStruct {
         src: VarId,

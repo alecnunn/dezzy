@@ -116,6 +116,9 @@ impl Pipeline {
             HirType::DynamicArray { element_type, size_field } => {
                 format!("{}[{}]", self.hir_type_to_string(element_type), size_field)
             }
+            HirType::UntilEofArray { element_type } => {
+                format!("{}[]", self.hir_type_to_string(element_type))
+            }
             HirType::UserDefined(name) => name.clone(),
         }
     }
@@ -173,6 +176,14 @@ impl Pipeline {
                     dest,
                     element_op: Box::new(element_op),
                     size_var,
+                }
+            }
+            HirType::UntilEofArray { element_type } => {
+                let dummy_var = self.next_var();
+                let element_op = self.lower_read_type(element_type, dummy_var, format, field_map)?;
+                LirOperation::ReadUntilEofArray {
+                    dest,
+                    element_op: Box::new(element_op),
                 }
             }
             HirType::UserDefined(name) => LirOperation::ReadStruct {
@@ -236,6 +247,14 @@ impl Pipeline {
                     element_op: Box::new(element_op),
                     size_var,
                     size_field_name: size_field.clone(),
+                }
+            }
+            HirType::UntilEofArray { element_type } => {
+                let dummy_var = self.next_var();
+                let element_op = self.lower_write_type(element_type, dummy_var, format, field_map)?;
+                LirOperation::WriteUntilEofArray {
+                    src,
+                    element_op: Box::new(element_op),
                 }
             }
             HirType::UserDefined(name) => LirOperation::WriteStruct {

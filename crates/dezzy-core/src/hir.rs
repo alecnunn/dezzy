@@ -45,6 +45,9 @@ pub enum HirType {
         element_type: Box<HirType>,
         size_field: String,
     },
+    UntilEofArray {
+        element_type: Box<HirType>,
+    },
     UserDefined(String),
 }
 
@@ -66,6 +69,7 @@ impl HirType {
                 element_type.size_in_bytes().map(|elem_size| elem_size * size)
             }
             HirType::DynamicArray { .. } => None,
+            HirType::UntilEofArray { .. } => None,
             HirType::UserDefined(_) => None,
         }
     }

@@ -155,6 +155,14 @@ impl CppBackend {
                 array_code.push_str("    }\n");
                 array_code
             }
+            LirOperation::ReadUntilEofArray { dest, element_op } => {
+                let field_name = var_to_field.get(dest).map(|s| s.as_str()).unwrap_or("unknown");
+                let mut array_code = String::from("    while (reader.remaining() > 0) {\n");
+                let element_read = self.generate_array_element_read(element_op, endianness)?;
+                array_code.push_str(&format!("        result.{}.push_back({});\n", field_name, element_read));
+                array_code.push_str("    }\n");
+                array_code
+            }
             LirOperation::ReadStruct { dest, type_name } => {
                 let field_name = var_to_field.get(dest).map(|s| s.as_str()).unwrap_or("unknown");
                 format!("    result.{} = {}::read(reader);\n", field_name, type_name)
@@ -265,6 +273,14 @@ impl CppBackend {
             LirOperation::WriteDynamicArray { src, element_op, size_field_name, .. } => {
                 let field_name = var_to_field.get(src).map(|s| s.as_str()).unwrap_or("unknown");
                 let mut array_code = format!("    for (size_t i = 0; i < {}; ++i) {{\n", size_field_name);
+                let element_write = self.generate_array_element_write(element_op, field_name, endianness)?;
+                array_code.push_str(&format!("        {};\n", element_write));
+                array_code.push_str("    }\n");
+                array_code
+            }
+            LirOperation::WriteUntilEofArray { src, element_op } => {
+                let field_name = var_to_field.get(src).map(|s| s.as_str()).unwrap_or("unknown");
+                let mut array_code = format!("    for (size_t i = 0; i < {}.size(); ++i) {{\n", field_name);
                 let element_write = self.generate_array_element_write(element_op, field_name, endianness)?;
                 array_code.push_str(&format!("        {};\n", element_write));
                 array_code.push_str("    }\n");

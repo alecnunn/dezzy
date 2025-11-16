@@ -1,0 +1,27 @@
+name: BinaryLog
+endianness: little
+
+types:
+  - name: LogEntry
+    type: struct
+    fields:
+      - name: timestamp
+        type: u64
+        doc: Unix timestamp in microseconds
+      - name: level
+        type: u8
+        doc: Log level (0=DEBUG, 1=INFO, 2=WARN, 3=ERROR)
+      - name: message_length
+        type: u16
+        doc: Length of the log message
+      - name: message
+        type: u8[message_length]
+        doc: UTF-8 encoded log message
+
+  - name: LogFile
+    type: struct
+    fields:
+      - name: entries
+        type: LogEntry[]
+        until: eof
+        doc: Log entries (read until end of file)

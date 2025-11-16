@@ -23,4 +23,5 @@ pub struct YamlField {
     #[serde(rename = "type")]
     pub field_type: String,
     pub doc: Option<String>,
+    pub until: Option<String>,
 }

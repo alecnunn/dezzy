@@ -71,7 +71,7 @@ fn parse_type_def(
 }
 
 fn parse_field(field: &YamlField, known_types: &HashSet<String>) -> Result<HirField, ParseError> {
-    let field_type = parse_type(&field.field_type, known_types)?;
+    let field_type = parse_type(&field.field_type, known_types, field.until.as_deref())?;
 
     Ok(HirField {
         name: field.name.clone(),
@@ -80,9 +80,30 @@ fn parse_field(field: &YamlField, known_types: &HashSet<String>) -> Result<HirFi
     })
 }
 
-fn parse_type(type_str: &str, known_types: &HashSet<String>) -> Result<HirType, ParseError> {
+fn parse_type(type_str: &str, known_types: &HashSet<String>, until: Option<&str>) -> Result<HirType, ParseError> {
     if let Some((element_type_str, size_spec)) = parse_array_type(type_str)? {
-        let element_type = parse_type(&element_type_str, known_types)?;
+        let element_type = parse_type(&element_type_str, known_types, None)?;
+
+        // Check if size_spec is empty (for Type[])
+        if size_spec.is_empty() {
+            // Check for until clause
+            if let Some("eof") = until {
+                // Until-EOF array
+                return Ok(HirType::UntilEofArray {
+                    element_type: Box::new(element_type),
+                });
+            } else if until.is_some() {
+                return Err(ParseError::InvalidValue {
+                    field: "until".to_string(),
+                    message: format!("Unknown until condition '{}', currently only 'eof' is supported", until.unwrap()),
+                });
+            } else {
+                return Err(ParseError::InvalidValue {
+                    field: "type".to_string(),
+                    message: "Array with empty size [] requires an 'until' clause (e.g., 'until: eof')".to_string(),
+                });
+            }
+        }
 
         // Check if size_spec is a number or a field reference
         if let Ok(size) = size_spec.parse::<usize>() {
@@ -130,13 +151,6 @@ fn parse_array_type(type_str: &str) -> Result<Option<(String, String)>, ParseErr
 
         let element_type = type_str[..bracket_pos].to_string();
         let size_str = type_str[bracket_pos + 1..type_str.len() - 1].to_string();
-
-        if size_str.is_empty() {
-            return Err(ParseError::InvalidValue {
-                field: "type".to_string(),
-                message: format!("Array size cannot be empty: {}", type_str),
-            });
-        }
 
         Ok(Some((element_type, size_str)))
     } else {
