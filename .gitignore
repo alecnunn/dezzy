@@ -23,3 +23,6 @@ Thumbs.db
 /examples/generated/
 /examples/**/*.hpp/
 *.exe
+
+# Plugin WASMs (built from source)
+/plugins/**/*.wasm

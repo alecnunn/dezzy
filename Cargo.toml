@@ -4,7 +4,7 @@ members = [
     "crates/dezzy-parser",
     "crates/dezzy-backend",
     "crates/dezzy-backend-cpp",
-    "crates/dezzy-cli",
+    "crates/dezzy-cli", "plugins/python",
 ]
 resolver = "2"
 
