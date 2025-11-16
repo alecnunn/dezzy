@@ -124,6 +124,104 @@ impl CppBackend {
             .collect()
     }
 
+    fn generate_assertion_check(
+        &self,
+        field_name: &str,
+        assertion: &HirAssertion,
+    ) -> String {
+        let mut code = String::new();
+
+        match assertion {
+            HirAssertion::Equals(assert_val) => {
+                match assert_val {
+                    HirAssertValue::Int(value) => {
+                        code.push_str(&format!("    if (result.{} != {}) {{\n", field_name, value));
+                        code.push_str(&format!("        throw ParseError(\"Field '{}' must equal {}, got \" + std::to_string(result.{}));\n", field_name, value, field_name));
+                        code.push_str("    }\n");
+                    }
+                    HirAssertValue::IntArray(values) => {
+                        code.push_str("    {\n");
+                        code.push_str(&format!("        std::array<uint8_t, {}> expected = {{", values.len()));
+                        for (i, val) in values.iter().enumerate() {
+                            if i > 0 { code.push_str(", "); }
+                            code.push_str(&format!("{}", val));
+                        }
+                        code.push_str("};\n");
+                        code.push_str(&format!("        if (!std::equal(result.{}.begin(), result.{}.end(), expected.begin())) {{\n", field_name, field_name));
+                        code.push_str(&format!("            throw ParseError(\"Field '{}' does not match expected value\");\n", field_name));
+                        code.push_str("        }\n");
+                        code.push_str("    }\n");
+                    }
+                }
+            }
+            HirAssertion::NotEquals(assert_val) => {
+                match assert_val {
+                    HirAssertValue::Int(value) => {
+                        code.push_str(&format!("    if (result.{} == {}) {{\n", field_name, value));
+                        code.push_str(&format!("        throw ParseError(\"Field '{}' must not equal {}\");\n", field_name, value));
+                        code.push_str("    }\n");
+                    }
+                    HirAssertValue::IntArray(_) => {
+                        code.push_str(&format!("    // NotEquals array assertion not implemented for field '{}'\n", field_name));
+                    }
+                }
+            }
+            HirAssertion::GreaterThan(threshold) => {
+                code.push_str(&format!("    if (result.{} <= {}) {{\n", field_name, threshold));
+                code.push_str(&format!("        throw ParseError(\"Field '{}' must be greater than {}, got \" + std::to_string(result.{}));\n", field_name, threshold, field_name));
+                code.push_str("    }\n");
+            }
+            HirAssertion::GreaterOrEqual(threshold) => {
+                code.push_str(&format!("    if (result.{} < {}) {{\n", field_name, threshold));
+                code.push_str(&format!("        throw ParseError(\"Field '{}' must be >= {}, got \" + std::to_string(result.{}));\n", field_name, threshold, field_name));
+                code.push_str("    }\n");
+            }
+            HirAssertion::LessThan(threshold) => {
+                code.push_str(&format!("    if (result.{} >= {}) {{\n", field_name, threshold));
+                code.push_str(&format!("        throw ParseError(\"Field '{}' must be less than {}, got \" + std::to_string(result.{}));\n", field_name, threshold, field_name));
+                code.push_str("    }\n");
+            }
+            HirAssertion::LessOrEqual(threshold) => {
+                code.push_str(&format!("    if (result.{} > {}) {{\n", field_name, threshold));
+                code.push_str(&format!("        throw ParseError(\"Field '{}' must be <= {}, got \" + std::to_string(result.{}));\n", field_name, threshold, field_name));
+                code.push_str("    }\n");
+            }
+            HirAssertion::In(values) => {
+                code.push_str("    {\n");
+                code.push_str(&format!("        std::array<int64_t, {}> allowed = {{", values.len()));
+                for (i, val) in values.iter().enumerate() {
+                    if i > 0 { code.push_str(", "); }
+                    code.push_str(&format!("{}", val));
+                }
+                code.push_str("};\n");
+                code.push_str(&format!("        if (std::find(allowed.begin(), allowed.end(), result.{}) == allowed.end()) {{\n", field_name));
+                code.push_str(&format!("            throw ParseError(\"Field '{}' has invalid value \" + std::to_string(result.{}));\n", field_name, field_name));
+                code.push_str("        }\n");
+                code.push_str("    }\n");
+            }
+            HirAssertion::NotIn(values) => {
+                code.push_str("    {\n");
+                code.push_str(&format!("        std::array<int64_t, {}> forbidden = {{", values.len()));
+                for (i, val) in values.iter().enumerate() {
+                    if i > 0 { code.push_str(", "); }
+                    code.push_str(&format!("{}", val));
+                }
+                code.push_str("};\n");
+                code.push_str(&format!("        if (std::find(forbidden.begin(), forbidden.end(), result.{}) != forbidden.end()) {{\n", field_name));
+                code.push_str(&format!("            throw ParseError(\"Field '{}' has forbidden value \" + std::to_string(result.{}));\n", field_name, field_name));
+                code.push_str("        }\n");
+                code.push_str("    }\n");
+            }
+            HirAssertion::Range { min, max } => {
+                code.push_str(&format!("    if (result.{} < {} || result.{} > {}) {{\n", field_name, min, field_name, max));
+                code.push_str(&format!("        throw ParseError(\"Field '{}' must be in range [{}, {}], got \" + std::to_string(result.{}));\n", field_name, min, max, field_name));
+                code.push_str("    }\n");
+            }
+        }
+
+        code
+    }
+
     fn generate_read_operation(
         &self,
         op: &LirOperation,
@@ -149,70 +247,95 @@ impl CppBackend {
             }
         };
 
+        // Helper to add assertion check if field has one
+        let add_assertion = |code: &mut String, dest: &VarId| {
+            if let Some(field) = fields.iter().find(|f| f.var_id == *dest) {
+                if let Some(ref assertion) = field.assertion {
+                    code.push_str(&self.generate_assertion_check(&field.name, assertion));
+                }
+            }
+        };
+
         Ok(match op {
             LirOperation::ReadU8 { dest } => {
                 let field_name = var_to_field.get(dest).map(|s| s.as_str()).unwrap_or("unknown");
-                if let Some(enum_name) = get_enum_type_for_dest(dest) {
+                let mut code = if let Some(enum_name) = get_enum_type_for_dest(dest) {
                     format!("    result.{} = static_cast<{}>(reader.read_le<uint8_t>());\n", field_name, enum_name)
                 } else {
                     format!("    result.{} = reader.read_le<uint8_t>();\n", field_name)
-                }
+                };
+                add_assertion(&mut code, dest);
+                code
             }
             LirOperation::ReadU16 { dest, .. } => {
                 let field_name = var_to_field.get(dest).map(|s| s.as_str()).unwrap_or("unknown");
-                if let Some(enum_name) = get_enum_type_for_dest(dest) {
+                let mut code = if let Some(enum_name) = get_enum_type_for_dest(dest) {
                     format!("    result.{} = static_cast<{}>(reader.read{}<uint16_t>());\n", field_name, enum_name, endian_suffix)
                 } else {
                     format!("    result.{} = reader.read{}<uint16_t>();\n", field_name, endian_suffix)
-                }
+                };
+                add_assertion(&mut code, dest);
+                code
             }
             LirOperation::ReadU32 { dest, .. } => {
                 let field_name = var_to_field.get(dest).map(|s| s.as_str()).unwrap_or("unknown");
-                if let Some(enum_name) = get_enum_type_for_dest(dest) {
+                let mut code = if let Some(enum_name) = get_enum_type_for_dest(dest) {
                     format!("    result.{} = static_cast<{}>(reader.read{}<uint32_t>());\n", field_name, enum_name, endian_suffix)
                 } else {
                     format!("    result.{} = reader.read{}<uint32_t>();\n", field_name, endian_suffix)
-                }
+                };
+                add_assertion(&mut code, dest);
+                code
             }
             LirOperation::ReadU64 { dest, .. } => {
                 let field_name = var_to_field.get(dest).map(|s| s.as_str()).unwrap_or("unknown");
-                if let Some(enum_name) = get_enum_type_for_dest(dest) {
+                let mut code = if let Some(enum_name) = get_enum_type_for_dest(dest) {
                     format!("    result.{} = static_cast<{}>(reader.read{}<uint64_t>());\n", field_name, enum_name, endian_suffix)
                 } else {
                     format!("    result.{} = reader.read{}<uint64_t>();\n", field_name, endian_suffix)
-                }
+                };
+                add_assertion(&mut code, dest);
+                code
             }
             LirOperation::ReadI8 { dest } => {
                 let field_name = var_to_field.get(dest).map(|s| s.as_str()).unwrap_or("unknown");
-                if let Some(enum_name) = get_enum_type_for_dest(dest) {
+                let mut code = if let Some(enum_name) = get_enum_type_for_dest(dest) {
                     format!("    result.{} = static_cast<{}>(reader.read_le<int8_t>());\n", field_name, enum_name)
                 } else {
                     format!("    result.{} = reader.read_le<int8_t>();\n", field_name)
-                }
+                };
+                add_assertion(&mut code, dest);
+                code
             }
             LirOperation::ReadI16 { dest, .. } => {
                 let field_name = var_to_field.get(dest).map(|s| s.as_str()).unwrap_or("unknown");
-                if let Some(enum_name) = get_enum_type_for_dest(dest) {
+                let mut code = if let Some(enum_name) = get_enum_type_for_dest(dest) {
                     format!("    result.{} = static_cast<{}>(reader.read{}<int16_t>());\n", field_name, enum_name, endian_suffix)
                 } else {
                     format!("    result.{} = reader.read{}<int16_t>();\n", field_name, endian_suffix)
-                }
+                };
+                add_assertion(&mut code, dest);
+                code
             }
             LirOperation::ReadI32 { dest, .. } => {
                 let field_name = var_to_field.get(dest).map(|s| s.as_str()).unwrap_or("unknown");
-                if let Some(enum_name) = get_enum_type_for_dest(dest) {
+                let mut code = if let Some(enum_name) = get_enum_type_for_dest(dest) {
                     format!("    result.{} = static_cast<{}>(reader.read{}<int32_t>());\n", field_name, enum_name, endian_suffix)
                 } else {
                     format!("    result.{} = reader.read{}<int32_t>();\n", field_name, endian_suffix)
-                }
+                };
+                add_assertion(&mut code, dest);
+                code
             }
             LirOperation::ReadI64 { dest, .. } => {
                 let field_name = var_to_field.get(dest).map(|s| s.as_str()).unwrap_or("unknown");
-                if let Some(enum_name) = get_enum_type_for_dest(dest) {
+                let mut code = if let Some(enum_name) = get_enum_type_for_dest(dest) {
                     format!("    result.{} = static_cast<{}>(reader.read{}<int64_t>());\n", field_name, enum_name, endian_suffix)
                 } else {
                     format!("    result.{} = reader.read{}<int64_t>();\n", field_name, endian_suffix)
-                }
+                };
+                add_assertion(&mut code, dest);
+                code
             }
             LirOperation::ReadArray { dest, element_op, count } => {
                 let field_name = var_to_field.get(dest).map(|s| s.as_str()).unwrap_or("unknown");
@@ -220,6 +343,7 @@ impl CppBackend {
                 let element_read = self.generate_array_element_read(element_op, endianness)?;
                 array_code.push_str(&format!("        result.{}[i] = {};\n", field_name, element_read));
                 array_code.push_str("    }\n");
+                add_assertion(&mut array_code, dest);
                 array_code
             }
             LirOperation::ReadDynamicArray { dest, element_op, size_var } => {

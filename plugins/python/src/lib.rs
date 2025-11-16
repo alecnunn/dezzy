@@ -1,7 +1,7 @@
 mod expr_codegen;
 
-use dezzy_core::hir::{Endianness, HirEnum, HirPrimitiveType};
-use dezzy_core::lir::{LirFormat, LirType};
+use dezzy_core::hir::{Endianness, HirAssertion, HirAssertValue, HirEnum, HirPrimitiveType};
+use dezzy_core::lir::{LirField, LirFormat, LirType};
 use expr_codegen::generate_expr;
 use serde_json;
 use std::alloc::{alloc as system_alloc, Layout};
@@ -167,7 +167,7 @@ fn generate_type(lir_type: &LirType, endianness: Endianness, enums: &[HirEnum]) 
     }
 
     // Generate read logic based on operations
-    code.push_str(&generate_read_from_operations(&lir_type.operations, &var_to_field, endianness)?);
+    code.push_str(&generate_read_from_operations(&lir_type.operations, &var_to_field, &lir_type.fields, endianness)?);
 
     // Create instance with collected fields
     let field_names: Vec<_> = lir_type.fields.iter().map(|f| f.name.as_str()).collect();
@@ -210,9 +210,73 @@ fn lir_type_to_python(type_str: &str) -> String {
 use dezzy_core::lir::LirOperation;
 use std::collections::HashMap;
 
+fn generate_assertion_check(field_name: &str, assertion: &HirAssertion) -> String {
+    let mut code = String::new();
+
+    match assertion {
+        HirAssertion::Equals(assert_val) => {
+            match assert_val {
+                HirAssertValue::Int(value) => {
+                    code.push_str(&format!("        if {} != {}:\n", field_name, value));
+                    code.push_str(&format!("            raise ValueError(\"Field '{}' must equal {}, got {{}}\".format({}))\n", field_name, value, field_name));
+                }
+                HirAssertValue::IntArray(values) => {
+                    code.push_str(&format!("        expected = [{}]\n", values.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(", ")));
+                    code.push_str(&format!("        if list({}) != expected:\n", field_name));
+                    code.push_str(&format!("            raise ValueError(\"Field '{}' does not match expected value\")\n", field_name));
+                }
+            }
+        }
+        HirAssertion::NotEquals(assert_val) => {
+            match assert_val {
+                HirAssertValue::Int(value) => {
+                    code.push_str(&format!("        if {} == {}:\n", field_name, value));
+                    code.push_str(&format!("            raise ValueError(\"Field '{}' must not equal {}\")\n", field_name, value));
+                }
+                HirAssertValue::IntArray(_) => {
+                    code.push_str(&format!("        # NotEquals array assertion not implemented for field '{}'\n", field_name));
+                }
+            }
+        }
+        HirAssertion::GreaterThan(threshold) => {
+            code.push_str(&format!("        if {} <= {}:\n", field_name, threshold));
+            code.push_str(&format!("            raise ValueError(\"Field '{}' must be greater than {}, got {{}}\".format({}))\n", field_name, threshold, field_name));
+        }
+        HirAssertion::GreaterOrEqual(threshold) => {
+            code.push_str(&format!("        if {} < {}:\n", field_name, threshold));
+            code.push_str(&format!("            raise ValueError(\"Field '{}' must be >= {}, got {{}}\".format({}))\n", field_name, threshold, field_name));
+        }
+        HirAssertion::LessThan(threshold) => {
+            code.push_str(&format!("        if {} >= {}:\n", field_name, threshold));
+            code.push_str(&format!("            raise ValueError(\"Field '{}' must be less than {}, got {{}}\".format({}))\n", field_name, threshold, field_name));
+        }
+        HirAssertion::LessOrEqual(threshold) => {
+            code.push_str(&format!("        if {} > {}:\n", field_name, threshold));
+            code.push_str(&format!("            raise ValueError(\"Field '{}' must be <= {}, got {{}}\".format({}))\n", field_name, threshold, field_name));
+        }
+        HirAssertion::In(values) => {
+            code.push_str(&format!("        allowed = [{}]\n", values.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(", ")));
+            code.push_str(&format!("        if {} not in allowed:\n", field_name));
+            code.push_str(&format!("            raise ValueError(\"Field '{}' has invalid value {{}}\".format({}))\n", field_name, field_name));
+        }
+        HirAssertion::NotIn(values) => {
+            code.push_str(&format!("        forbidden = [{}]\n", values.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(", ")));
+            code.push_str(&format!("        if {} in forbidden:\n", field_name));
+            code.push_str(&format!("            raise ValueError(\"Field '{}' has forbidden value {{}}\".format({}))\n", field_name, field_name));
+        }
+        HirAssertion::Range { min, max } => {
+            code.push_str(&format!("        if {} < {} or {} > {}:\n", field_name, min, field_name, max));
+            code.push_str(&format!("            raise ValueError(\"Field '{}' must be in range [{}, {}], got {{}}\".format({}))\n", field_name, min, max, field_name));
+        }
+    }
+
+    code
+}
+
 fn generate_read_from_operations(
     operations: &[LirOperation],
     var_to_field: &HashMap<usize, String>,
+    fields: &[LirField],
     endianness: Endianness,
 ) -> Result<String, String> {
     let mut code = String::new();
@@ -228,53 +292,99 @@ fn generate_read_from_operations(
                 let field_name = var_to_field.get(dest).ok_or("Unknown var_id")?;
                 code.push_str(&format!("        {} = struct.unpack_from('B', buffer, pos)[0]\n", field_name));
                 code.push_str("        pos += 1\n");
+                // Add assertion if field has one
+                if let Some(field) = fields.iter().find(|f| f.var_id == *dest) {
+                    if let Some(ref assertion) = field.assertion {
+                        code.push_str(&generate_assertion_check(field_name, assertion));
+                    }
+                }
             }
             LirOperation::ReadU16 { dest, .. } => {
                 let field_name = var_to_field.get(dest).ok_or("Unknown var_id")?;
                 let endian_char = endian_to_char(endianness);
                 code.push_str(&format!("        {} = struct.unpack_from('{}H', buffer, pos)[0]\n", field_name, endian_char));
                 code.push_str("        pos += 2\n");
+                if let Some(field) = fields.iter().find(|f| f.var_id == *dest) {
+                    if let Some(ref assertion) = field.assertion {
+                        code.push_str(&generate_assertion_check(field_name, assertion));
+                    }
+                }
             }
             LirOperation::ReadU32 { dest, .. } => {
                 let field_name = var_to_field.get(dest).ok_or("Unknown var_id")?;
                 let endian_char = endian_to_char(endianness);
                 code.push_str(&format!("        {} = struct.unpack_from('{}I', buffer, pos)[0]\n", field_name, endian_char));
                 code.push_str("        pos += 4\n");
+                if let Some(field) = fields.iter().find(|f| f.var_id == *dest) {
+                    if let Some(ref assertion) = field.assertion {
+                        code.push_str(&generate_assertion_check(field_name, assertion));
+                    }
+                }
             }
             LirOperation::ReadU64 { dest, .. } => {
                 let field_name = var_to_field.get(dest).ok_or("Unknown var_id")?;
                 let endian_char = endian_to_char(endianness);
                 code.push_str(&format!("        {} = struct.unpack_from('{}Q', buffer, pos)[0]\n", field_name, endian_char));
                 code.push_str("        pos += 8\n");
+                if let Some(field) = fields.iter().find(|f| f.var_id == *dest) {
+                    if let Some(ref assertion) = field.assertion {
+                        code.push_str(&generate_assertion_check(field_name, assertion));
+                    }
+                }
             }
             LirOperation::ReadI8 { dest } => {
                 let field_name = var_to_field.get(dest).ok_or("Unknown var_id")?;
                 code.push_str(&format!("        {} = struct.unpack_from('b', buffer, pos)[0]\n", field_name));
                 code.push_str("        pos += 1\n");
+                if let Some(field) = fields.iter().find(|f| f.var_id == *dest) {
+                    if let Some(ref assertion) = field.assertion {
+                        code.push_str(&generate_assertion_check(field_name, assertion));
+                    }
+                }
             }
             LirOperation::ReadI16 { dest, .. } => {
                 let field_name = var_to_field.get(dest).ok_or("Unknown var_id")?;
                 let endian_char = endian_to_char(endianness);
                 code.push_str(&format!("        {} = struct.unpack_from('{}h', buffer, pos)[0]\n", field_name, endian_char));
                 code.push_str("        pos += 2\n");
+                if let Some(field) = fields.iter().find(|f| f.var_id == *dest) {
+                    if let Some(ref assertion) = field.assertion {
+                        code.push_str(&generate_assertion_check(field_name, assertion));
+                    }
+                }
             }
             LirOperation::ReadI32 { dest, .. } => {
                 let field_name = var_to_field.get(dest).ok_or("Unknown var_id")?;
                 let endian_char = endian_to_char(endianness);
                 code.push_str(&format!("        {} = struct.unpack_from('{}i', buffer, pos)[0]\n", field_name, endian_char));
                 code.push_str("        pos += 4\n");
+                if let Some(field) = fields.iter().find(|f| f.var_id == *dest) {
+                    if let Some(ref assertion) = field.assertion {
+                        code.push_str(&generate_assertion_check(field_name, assertion));
+                    }
+                }
             }
             LirOperation::ReadI64 { dest, .. } => {
                 let field_name = var_to_field.get(dest).ok_or("Unknown var_id")?;
                 let endian_char = endian_to_char(endianness);
                 code.push_str(&format!("        {} = struct.unpack_from('{}q', buffer, pos)[0]\n", field_name, endian_char));
                 code.push_str("        pos += 8\n");
+                if let Some(field) = fields.iter().find(|f| f.var_id == *dest) {
+                    if let Some(ref assertion) = field.assertion {
+                        code.push_str(&generate_assertion_check(field_name, assertion));
+                    }
+                }
             }
             LirOperation::ReadArray { dest, element_op, count } => {
                 let field_name = var_to_field.get(dest).ok_or("Unknown var_id")?;
                 code.push_str(&format!("        {} = []\n", field_name));
                 code.push_str(&format!("        for _ in range({}):\n", count));
                 code.push_str(&generate_array_element_read_multiline(element_op, field_name, endianness, 3)?);
+                if let Some(field) = fields.iter().find(|f| f.var_id == *dest) {
+                    if let Some(ref assertion) = field.assertion {
+                        code.push_str(&generate_assertion_check(field_name, assertion));
+                    }
+                }
             }
             LirOperation::ReadDynamicArray { dest, element_op, size_var } => {
                 let field_name = var_to_field.get(dest).ok_or("Unknown var_id")?;

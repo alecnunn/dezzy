@@ -92,10 +92,28 @@ inline Header Header::read(Reader& reader) {
     for (size_t i = 0; i < 4; ++i) {
         result.magic[i] = reader.read_le<uint8_t>();
     }
+    {
+        std::array<uint8_t, 4> expected = {137, 80, 78, 71};
+        if (!std::equal(result.magic.begin(), result.magic.end(), expected.begin())) {
+            throw ParseError("Field 'magic' does not match expected value");
+        }
+    }
     result.version = reader.read_be<uint16_t>();
+    if (result.version < 1) {
+        throw ParseError("Field 'version' must be >= 1, got " + std::to_string(result.version));
+    }
     result.width = reader.read_be<uint32_t>();
+    if (result.width <= 0) {
+        throw ParseError("Field 'width' must be greater than 0, got " + std::to_string(result.width));
+    }
     result.height = reader.read_be<uint32_t>();
+    if (result.height <= 0) {
+        throw ParseError("Field 'height' must be greater than 0, got " + std::to_string(result.height));
+    }
     result.flags = reader.read_le<uint8_t>();
+    if (result.flags < 0 || result.flags > 7) {
+        throw ParseError("Field 'flags' must be in range [0, 7], got " + std::to_string(result.flags));
+    }
     return result;
 }
 
