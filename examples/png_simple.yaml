@@ -1,0 +1,32 @@
+name: PNGSimple
+version: "1.0"
+endianness: big
+
+types:
+  - name: Chunk
+    type: struct
+    doc: "A PNG chunk with variable-length data"
+    fields:
+      - name: length
+        type: u32
+        doc: "Length of the data field"
+      - name: chunk_type
+        type: u8[4]
+        doc: "4-byte chunk type identifier"
+      - name: data
+        type: u8[length]
+        doc: "Variable-length chunk data"
+      - name: crc
+        type: u32
+        doc: "CRC32 checksum"
+
+  - name: PNGFile
+    type: struct
+    doc: "Simplified PNG file with signature and IHDR chunk"
+    fields:
+      - name: signature
+        type: u8[8]
+        doc: "PNG signature: 89 50 4E 47 0D 0A 1A 0A"
+      - name: ihdr_chunk
+        type: Chunk
+        doc: "IHDR chunk (must be first)"

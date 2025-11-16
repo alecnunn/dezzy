@@ -34,10 +34,21 @@ impl CppBackend {
     }
 
     fn lir_type_to_cpp_type(&self, type_str: &str) -> String {
-        if let Some(array_type) = self.parse_array_type(type_str) {
-            let (element_type, size) = array_type;
-            let cpp_element_type = self.lir_type_to_cpp_type(&element_type);
-            return format!("std::array<{}, {}>", cpp_element_type, size);
+        if let Some(bracket_pos) = type_str.find('[') {
+            if !type_str.ends_with(']') {
+                return type_str.to_string();
+            }
+            let element_type = &type_str[..bracket_pos];
+            let size_str = &type_str[bracket_pos + 1..type_str.len() - 1];
+            let cpp_element_type = self.lir_type_to_cpp_type(element_type);
+
+            // Try to parse as fixed size
+            if let Ok(size) = size_str.parse::<usize>() {
+                return format!("std::array<{}, {}>", cpp_element_type, size);
+            } else {
+                // Dynamic array (size from field)
+                return format!("std::vector<{}>", cpp_element_type);
+            }
         }
 
         match type_str {
@@ -50,20 +61,6 @@ impl CppBackend {
             "i32" => "int32_t".to_string(),
             "i64" => "int64_t".to_string(),
             other => other.to_string(),
-        }
-    }
-
-    fn parse_array_type(&self, type_str: &str) -> Option<(String, usize)> {
-        if let Some(bracket_pos) = type_str.find('[') {
-            if !type_str.ends_with(']') {
-                return None;
-            }
-            let element_type = type_str[..bracket_pos].to_string();
-            let size_str = &type_str[bracket_pos + 1..type_str.len() - 1];
-            let size = size_str.parse::<usize>().ok()?;
-            Some((element_type, size))
-        } else {
-            None
         }
     }
 
@@ -143,6 +140,16 @@ impl CppBackend {
             LirOperation::ReadArray { dest, element_op, count } => {
                 let field_name = var_to_field.get(dest).map(|s| s.as_str()).unwrap_or("unknown");
                 let mut array_code = format!("    for (size_t i = 0; i < {}; ++i) {{\n", count);
+                let element_read = self.generate_array_element_read(element_op, endianness)?;
+                array_code.push_str(&format!("        result.{}[i] = {};\n", field_name, element_read));
+                array_code.push_str("    }\n");
+                array_code
+            }
+            LirOperation::ReadDynamicArray { dest, element_op, size_var } => {
+                let field_name = var_to_field.get(dest).map(|s| s.as_str()).unwrap_or("unknown");
+                let size_field_name = var_to_field.get(size_var).map(|s| s.as_str()).unwrap_or("unknown_size");
+                let mut array_code = format!("    result.{}.resize(result.{});\n", field_name, size_field_name);
+                array_code.push_str(&format!("    for (size_t i = 0; i < result.{}; ++i) {{\n", size_field_name));
                 let element_read = self.generate_array_element_read(element_op, endianness)?;
                 array_code.push_str(&format!("        result.{}[i] = {};\n", field_name, element_read));
                 array_code.push_str("    }\n");
@@ -250,6 +257,14 @@ impl CppBackend {
             LirOperation::WriteArray { src, element_op, count } => {
                 let field_name = var_to_field.get(src).map(|s| s.as_str()).unwrap_or("unknown");
                 let mut array_code = format!("    for (size_t i = 0; i < {}; ++i) {{\n", count);
+                let element_write = self.generate_array_element_write(element_op, field_name, endianness)?;
+                array_code.push_str(&format!("        {};\n", element_write));
+                array_code.push_str("    }\n");
+                array_code
+            }
+            LirOperation::WriteDynamicArray { src, element_op, size_field_name, .. } => {
+                let field_name = var_to_field.get(src).map(|s| s.as_str()).unwrap_or("unknown");
+                let mut array_code = format!("    for (size_t i = 0; i < {}; ++i) {{\n", size_field_name);
                 let element_write = self.generate_array_element_write(element_op, field_name, endianness)?;
                 array_code.push_str(&format!("        {};\n", element_write));
                 array_code.push_str("    }\n");

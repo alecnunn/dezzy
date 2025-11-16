@@ -21,3 +21,5 @@ Thumbs.db
 
 # Generated code examples
 /examples/generated/
+/examples/**/*.hpp/
+*.exe

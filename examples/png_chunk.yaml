@@ -1,0 +1,21 @@
+name: PNGChunk
+version: "1.0"
+endianness: big
+
+types:
+  - name: Chunk
+    type: struct
+    doc: "A PNG chunk with variable-length data"
+    fields:
+      - name: length
+        type: u32
+        doc: "Length of the data field"
+      - name: chunk_type
+        type: u8[4]
+        doc: "4-byte chunk type identifier (e.g., IHDR, IDAT)"
+      - name: data
+        type: u8[length]
+        doc: "Variable-length chunk data"
+      - name: crc
+        type: u32
+        doc: "CRC32 checksum"

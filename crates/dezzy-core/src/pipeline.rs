@@ -235,6 +235,7 @@ impl Pipeline {
                     src,
                     element_op: Box::new(element_op),
                     size_var,
+                    size_field_name: size_field.clone(),
                 }
             }
             HirType::UserDefined(name) => LirOperation::WriteStruct {

@@ -112,6 +112,7 @@ pub enum LirOperation {
         src: VarId,
         element_op: Box<LirOperation>,
         size_var: VarId,
+        size_field_name: String,
     },
     WriteStruct {
         src: VarId,
