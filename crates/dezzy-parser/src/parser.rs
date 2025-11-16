@@ -307,7 +307,30 @@ fn parse_type(
     enum_names: &HashSet<String>,
     until: Option<&str>,
 ) -> Result<HirType, ParseError> {
+    // Handle null-terminated string
+    if type_str == "cstr" {
+        return Ok(HirType::NullTerminatedString);
+    }
+
+    // Handle length-prefixed string: str(field_name)
+    if type_str.starts_with("str(") && type_str.ends_with(')') {
+        let length_field = type_str[4..type_str.len() - 1].to_string();
+        return Ok(HirType::LengthPrefixedString { length_field });
+    }
+
     if let Some((element_type_str, size_spec)) = parse_array_type(type_str)? {
+        // Special case: str[N] is a fixed-length string, not an array of bytes
+        if element_type_str == "str" {
+            if let Ok(size) = size_spec.parse::<usize>() {
+                return Ok(HirType::FixedString { size });
+            } else {
+                return Err(ParseError::InvalidValue {
+                    field: "type".to_string(),
+                    message: format!("Fixed-length string must have numeric size, got '{}'", size_spec),
+                });
+            }
+        }
+
         let element_type = parse_type(&element_type_str, known_types, enum_names, None)?;
 
         // Check if size_spec is empty (for Type[])

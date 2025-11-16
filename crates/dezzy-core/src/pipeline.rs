@@ -137,6 +137,9 @@ impl Pipeline {
             HirType::UntilConditionArray { element_type, .. } => {
                 format!("{}[]", self.hir_type_to_string(element_type))
             }
+            HirType::FixedString { size } => format!("str[{}]", size),
+            HirType::NullTerminatedString => "cstr".to_string(),
+            HirType::LengthPrefixedString { length_field } => format!("str({})", length_field),
             HirType::Enum(name) => name.clone(),
             HirType::UserDefined(name) => name.clone(),
         }
@@ -212,6 +215,20 @@ impl Pipeline {
                     dest,
                     element_op: Box::new(element_op),
                     condition: condition.clone(),
+                }
+            }
+            HirType::FixedString { size } => LirOperation::ReadFixedString {
+                dest,
+                length: *size,
+            },
+            HirType::NullTerminatedString => LirOperation::ReadNullTerminatedString { dest },
+            HirType::LengthPrefixedString { length_field } => {
+                let length_var = *field_map.get(length_field).ok_or_else(|| {
+                    PipelineError::UnknownType(format!("Length field '{}' not found", length_field))
+                })?;
+                LirOperation::ReadLengthPrefixedString {
+                    dest,
+                    length_var,
                 }
             }
             HirType::Enum(name) => {
@@ -301,6 +318,20 @@ impl Pipeline {
                 LirOperation::WriteUntilConditionArray {
                     src,
                     element_op: Box::new(element_op),
+                }
+            }
+            HirType::FixedString { size } => LirOperation::WriteFixedString {
+                src,
+                length: *size,
+            },
+            HirType::NullTerminatedString => LirOperation::WriteNullTerminatedString { src },
+            HirType::LengthPrefixedString { length_field } => {
+                let length_var = *field_map.get(length_field).ok_or_else(|| {
+                    PipelineError::UnknownType(format!("Length field '{}' not found", length_field))
+                })?;
+                LirOperation::WriteLengthPrefixedString {
+                    src,
+                    length_var,
                 }
             }
             HirType::Enum(name) => {

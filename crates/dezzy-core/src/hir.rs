@@ -112,6 +112,16 @@ pub enum HirType {
         element_type: Box<HirType>,
         condition: Expr,
     },
+    /// Fixed-length string (e.g., str[8])
+    FixedString {
+        size: usize,
+    },
+    /// Null-terminated string (e.g., cstr)
+    NullTerminatedString,
+    /// Length-prefixed string where length is read from another field (e.g., str(len_field))
+    LengthPrefixedString {
+        length_field: String,
+    },
     Enum(String),
     UserDefined(String),
 }
@@ -136,6 +146,9 @@ impl HirType {
             HirType::DynamicArray { .. } => None,
             HirType::UntilEofArray { .. } => None,
             HirType::UntilConditionArray { .. } => None,
+            HirType::FixedString { size } => Some(*size),
+            HirType::NullTerminatedString => None,
+            HirType::LengthPrefixedString { .. } => None,
             HirType::Enum(_) => None, // Size determined by underlying type during lowering
             HirType::UserDefined(_) => None,
         }

@@ -81,6 +81,17 @@ pub enum LirOperation {
         element_op: Box<LirOperation>,
         condition: Expr,
     },
+    ReadFixedString {
+        dest: VarId,
+        length: usize,
+    },
+    ReadNullTerminatedString {
+        dest: VarId,
+    },
+    ReadLengthPrefixedString {
+        dest: VarId,
+        length_var: VarId,
+    },
     ReadStruct {
         dest: VarId,
         type_name: String,
@@ -133,6 +144,17 @@ pub enum LirOperation {
     WriteUntilConditionArray {
         src: VarId,
         element_op: Box<LirOperation>,
+    },
+    WriteFixedString {
+        src: VarId,
+        length: usize,
+    },
+    WriteNullTerminatedString {
+        src: VarId,
+    },
+    WriteLengthPrefixedString {
+        src: VarId,
+        length_var: VarId,
     },
     WriteStruct {
         src: VarId,
