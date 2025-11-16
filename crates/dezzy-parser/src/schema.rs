@@ -5,7 +5,18 @@ pub struct YamlFormat {
     pub name: String,
     pub version: Option<String>,
     pub endianness: Option<String>,
+    #[serde(default)]
+    pub enums: Vec<YamlEnum>,
     pub types: Vec<YamlTypeDef>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct YamlEnum {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub underlying_type: String,
+    pub doc: Option<String>,
+    pub values: serde_yaml::Mapping,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

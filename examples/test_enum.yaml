@@ -1,0 +1,19 @@
+name: TestEnum
+endianness: big
+
+enums:
+  - name: Status
+    type: u8
+    values:
+      OK: 0
+      ERROR: 1
+      PENDING: 2
+
+types:
+  - name: Message
+    type: struct
+    fields:
+      - name: status
+        type: Status
+      - name: value
+        type: u32

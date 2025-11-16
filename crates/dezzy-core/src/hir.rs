@@ -6,7 +6,35 @@ pub struct HirFormat {
     pub name: String,
     pub version: Option<String>,
     pub endianness: Endianness,
+    pub enums: Vec<HirEnum>,
     pub types: Vec<HirTypeDef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HirEnum {
+    pub name: String,
+    pub doc: Option<String>,
+    pub underlying_type: HirPrimitiveType,
+    pub values: Vec<HirEnumValue>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HirEnumValue {
+    pub name: String,
+    pub value: i64,
+    pub doc: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum HirPrimitiveType {
+    U8,
+    U16,
+    U32,
+    U64,
+    I8,
+    I16,
+    I32,
+    I64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -53,6 +81,7 @@ pub enum HirType {
         element_type: Box<HirType>,
         condition: Expr,
     },
+    Enum(String),
     UserDefined(String),
 }
 
@@ -76,6 +105,7 @@ impl HirType {
             HirType::DynamicArray { .. } => None,
             HirType::UntilEofArray { .. } => None,
             HirType::UntilConditionArray { .. } => None,
+            HirType::Enum(_) => None, // Size determined by underlying type during lowering
             HirType::UserDefined(_) => None,
         }
     }

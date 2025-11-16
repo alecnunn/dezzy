@@ -1,7 +1,20 @@
-use crate::hir::{HirFormat, HirStruct, HirType, HirTypeDef};
+use crate::hir::{HirFormat, HirPrimitiveType, HirStruct, HirType, HirTypeDef};
 use crate::lir::{LirField, LirFormat, LirOperation, LirType, VarId};
 use std::collections::HashMap;
 use thiserror::Error;
+
+fn primitive_to_hir_type(prim: HirPrimitiveType) -> HirType {
+    match prim {
+        HirPrimitiveType::U8 => HirType::U8,
+        HirPrimitiveType::U16 => HirType::U16,
+        HirPrimitiveType::U32 => HirType::U32,
+        HirPrimitiveType::U64 => HirType::U64,
+        HirPrimitiveType::I8 => HirType::I8,
+        HirPrimitiveType::I16 => HirType::I16,
+        HirPrimitiveType::I32 => HirType::I32,
+        HirPrimitiveType::I64 => HirType::I64,
+    }
+}
 
 #[derive(Debug, Error)]
 pub enum PipelineError {
@@ -34,6 +47,7 @@ impl Pipeline {
 
         Ok(LirFormat {
             name: hir.name,
+            enums: hir.enums,
             types: lir_types,
             endianness: hir.endianness,
         })
@@ -122,6 +136,7 @@ impl Pipeline {
             HirType::UntilConditionArray { element_type, .. } => {
                 format!("{}[]", self.hir_type_to_string(element_type))
             }
+            HirType::Enum(name) => name.clone(),
             HirType::UserDefined(name) => name.clone(),
         }
     }
@@ -197,6 +212,16 @@ impl Pipeline {
                     element_op: Box::new(element_op),
                     condition: condition.clone(),
                 }
+            }
+            HirType::Enum(name) => {
+                // Look up the enum definition
+                let enum_def = format.enums.iter().find(|e| &e.name == name).ok_or_else(|| {
+                    PipelineError::UnknownType(format!("Enum '{}' not found", name))
+                })?;
+
+                // Lower as the underlying primitive type
+                let underlying_hir_type = primitive_to_hir_type(enum_def.underlying_type);
+                self.lower_read_type(&underlying_hir_type, dest, format, field_map)?
             }
             HirType::UserDefined(name) => LirOperation::ReadStruct {
                 dest,
@@ -276,6 +301,16 @@ impl Pipeline {
                     src,
                     element_op: Box::new(element_op),
                 }
+            }
+            HirType::Enum(name) => {
+                // Look up the enum definition
+                let enum_def = format.enums.iter().find(|e| &e.name == name).ok_or_else(|| {
+                    PipelineError::UnknownType(format!("Enum '{}' not found", name))
+                })?;
+
+                // Lower as the underlying primitive type
+                let underlying_hir_type = primitive_to_hir_type(enum_def.underlying_type);
+                self.lower_write_type(&underlying_hir_type, src, format, field_map)?
             }
             HirType::UserDefined(name) => LirOperation::WriteStruct {
                 src,

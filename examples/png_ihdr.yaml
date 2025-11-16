@@ -1,0 +1,101 @@
+name: PNGHeader
+version: "1.0"
+endianness: big
+
+enums:
+  - name: ColorType
+    type: u8
+    doc: "PNG color type"
+    values:
+      GRAYSCALE: 0
+      RGB: 2
+      PALETTE: 3
+      GRAYSCALE_ALPHA: 4
+      RGBA: 6
+
+  - name: CompressionMethod
+    type: u8
+    doc: "PNG compression method"
+    values:
+      DEFLATE: 0
+
+  - name: FilterMethod
+    type: u8
+    doc: "PNG filter method"
+    values:
+      ADAPTIVE: 0
+
+  - name: InterlaceMethod
+    type: u8
+    doc: "PNG interlace method"
+    values:
+      NONE: 0
+      ADAM7: 1
+
+types:
+  - name: IHDRChunk
+    type: struct
+    doc: "PNG IHDR (Image Header) chunk data"
+    fields:
+      - name: width
+        type: u32
+        doc: "Image width in pixels"
+      - name: height
+        type: u32
+        doc: "Image height in pixels"
+      - name: bit_depth
+        type: u8
+        doc: "Bits per sample (1, 2, 4, 8, or 16)"
+      - name: color_type
+        type: ColorType
+        doc: "Color type of the image"
+      - name: compression_method
+        type: CompressionMethod
+        doc: "Compression method (always 0 for DEFLATE)"
+      - name: filter_method
+        type: FilterMethod
+        doc: "Filter method (always 0 for adaptive filtering)"
+      - name: interlace_method
+        type: InterlaceMethod
+        doc: "Interlace method (0 for none, 1 for Adam7)"
+
+  - name: Chunk
+    type: struct
+    doc: "Generic PNG chunk"
+    fields:
+      - name: length
+        type: u32
+        doc: "Length of the data field"
+      - name: chunk_type
+        type: u8[4]
+        doc: "4-byte chunk type identifier"
+      - name: data
+        type: u8[length]
+        doc: "Variable-length chunk data"
+      - name: crc
+        type: u32
+        doc: "CRC32 checksum"
+
+  - name: PNGWithIHDR
+    type: struct
+    doc: "PNG file with parsed IHDR chunk"
+    fields:
+      - name: signature
+        type: u8[8]
+        doc: "PNG signature: 89 50 4E 47 0D 0A 1A 0A"
+      - name: ihdr_length
+        type: u32
+        doc: "IHDR chunk length (should be 13)"
+      - name: ihdr_type
+        type: u8[4]
+        doc: "IHDR chunk type identifier"
+      - name: ihdr
+        type: IHDRChunk
+        doc: "Parsed IHDR chunk data"
+      - name: ihdr_crc
+        type: u32
+        doc: "IHDR CRC32 checksum"
+      - name: remaining_chunks
+        type: Chunk[]
+        until: eof
+        doc: "Remaining chunks until EOF"

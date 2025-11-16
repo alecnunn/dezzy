@@ -1,5 +1,5 @@
 use crate::expr::Expr;
-use crate::hir::Endianness;
+use crate::hir::{Endianness, HirEnum};
 use serde::{Deserialize, Serialize};
 
 pub type VarId = usize;
@@ -7,6 +7,7 @@ pub type VarId = usize;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LirFormat {
     pub name: String,
+    pub enums: Vec<HirEnum>,
     pub types: Vec<LirType>,
     pub endianness: Endianness,
 }

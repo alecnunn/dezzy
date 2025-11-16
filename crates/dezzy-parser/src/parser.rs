@@ -1,7 +1,10 @@
 use crate::error::ParseError;
 use crate::expr_parser::parse_expr;
-use crate::schema::{YamlField, YamlFormat, YamlTypeDef};
-use dezzy_core::hir::{Endianness, HirField, HirFormat, HirStruct, HirType, HirTypeDef};
+use crate::schema::{YamlEnum, YamlField, YamlFormat, YamlTypeDef};
+use dezzy_core::hir::{
+    Endianness, HirEnum, HirEnumValue, HirField, HirFormat, HirPrimitiveType, HirStruct, HirType,
+    HirTypeDef,
+};
 use std::collections::HashSet;
 
 pub fn parse_format(yaml_content: &str) -> Result<HirFormat, ParseError> {
@@ -9,7 +12,19 @@ pub fn parse_format(yaml_content: &str) -> Result<HirFormat, ParseError> {
 
     let endianness = parse_endianness(yaml_format.endianness.as_deref())?;
 
-    let mut type_names = HashSet::new();
+    // Parse enums first
+    let mut enum_names = HashSet::new();
+    let mut hir_enums = Vec::new();
+    for enum_def in &yaml_format.enums {
+        if !enum_names.insert(enum_def.name.clone()) {
+            return Err(ParseError::DuplicateType(enum_def.name.clone()));
+        }
+        let hir_enum = parse_enum(enum_def)?;
+        hir_enums.push(hir_enum);
+    }
+
+    // Collect all known type names (enums + structs)
+    let mut type_names = enum_names.clone();
     for type_def in &yaml_format.types {
         if !type_names.insert(type_def.name.clone()) {
             return Err(ParseError::DuplicateType(type_def.name.clone()));
@@ -18,7 +33,7 @@ pub fn parse_format(yaml_content: &str) -> Result<HirFormat, ParseError> {
 
     let mut hir_types = Vec::new();
     for type_def in &yaml_format.types {
-        let hir_type = parse_type_def(type_def, &type_names)?;
+        let hir_type = parse_type_def(type_def, &type_names, &enum_names)?;
         hir_types.push(hir_type);
     }
 
@@ -26,8 +41,65 @@ pub fn parse_format(yaml_content: &str) -> Result<HirFormat, ParseError> {
         name: yaml_format.name,
         version: yaml_format.version,
         endianness,
+        enums: hir_enums,
         types: hir_types,
     })
+}
+
+fn parse_enum(enum_def: &YamlEnum) -> Result<HirEnum, ParseError> {
+    let underlying_type = parse_primitive_type(&enum_def.underlying_type)?;
+
+    let mut values = Vec::new();
+    for (key, value) in &enum_def.values {
+        let name = key
+            .as_str()
+            .ok_or_else(|| ParseError::InvalidValue {
+                field: "enum value name".to_string(),
+                message: "Enum value names must be strings".to_string(),
+            })?
+            .to_string();
+
+        let value_int = if let Some(v) = value.as_i64() {
+            v
+        } else if let Some(v) = value.as_u64() {
+            v as i64
+        } else {
+            return Err(ParseError::InvalidValue {
+                field: format!("enum value '{}'", name),
+                message: "Enum values must be integers".to_string(),
+            });
+        };
+
+        values.push(HirEnumValue {
+            name,
+            value: value_int,
+            doc: None,
+        });
+    }
+
+    Ok(HirEnum {
+        name: enum_def.name.clone(),
+        doc: enum_def.doc.clone(),
+        underlying_type,
+        values,
+    })
+}
+
+fn parse_primitive_type(type_str: &str) -> Result<HirPrimitiveType, ParseError> {
+    match type_str {
+        "u8" => Ok(HirPrimitiveType::U8),
+        "u16" => Ok(HirPrimitiveType::U16),
+        "u32" => Ok(HirPrimitiveType::U32),
+        "u64" => Ok(HirPrimitiveType::U64),
+        "i8" => Ok(HirPrimitiveType::I8),
+        "i16" => Ok(HirPrimitiveType::I16),
+        "i32" => Ok(HirPrimitiveType::I32),
+        "i64" => Ok(HirPrimitiveType::I64),
+        _ => Err(ParseError::InvalidValue {
+            field: "type".to_string(),
+            message: format!("Unknown primitive type '{}'", type_str),
+        }),
+    }
 }
 
 fn parse_endianness(endianness: Option<&str>) -> Result<Endianness, ParseError> {
@@ -45,6 +117,7 @@ fn parse_endianness(endianness: Option<&str>) -> Result<Endianness, ParseError> 
 fn parse_type_def(
     type_def: &YamlTypeDef,
     known_types: &HashSet<String>,
+    enum_names: &HashSet<String>,
 ) -> Result<HirTypeDef, ParseError> {
     match type_def.type_kind.as_str() {
         "struct" => {
@@ -55,7 +128,7 @@ fn parse_type_def(
 
             let hir_fields = fields
                 .iter()
-                .map(|f| parse_field(f, known_types))
+                .map(|f| parse_field(f, known_types, enum_names))
                 .collect::<Result<Vec<_>, _>>()?;
 
             Ok(HirTypeDef::Struct(HirStruct {
@@ -71,8 +144,12 @@ fn parse_type_def(
     }
 }
 
-fn parse_field(field: &YamlField, known_types: &HashSet<String>) -> Result<HirField, ParseError> {
-    let field_type = parse_type(&field.field_type, known_types, field.until.as_deref())?;
+fn parse_field(
+    field: &YamlField,
+    known_types: &HashSet<String>,
+    enum_names: &HashSet<String>,
+) -> Result<HirField, ParseError> {
+    let field_type = parse_type(&field.field_type, known_types, enum_names, field.until.as_deref())?;
 
     Ok(HirField {
         name: field.name.clone(),
@@ -81,9 +158,14 @@ fn parse_field(field: &YamlField, known_types: &HashSet<String>) -> Result<HirFi
     })
 }
 
-fn parse_type(type_str: &str, known_types: &HashSet<String>, until: Option<&str>) -> Result<HirType, ParseError> {
+fn parse_type(
+    type_str: &str,
+    known_types: &HashSet<String>,
+    enum_names: &HashSet<String>,
+    until: Option<&str>,
+) -> Result<HirType, ParseError> {
     if let Some((element_type_str, size_spec)) = parse_array_type(type_str)? {
-        let element_type = parse_type(&element_type_str, known_types, None)?;
+        let element_type = parse_type(&element_type_str, known_types, enum_names, None)?;
 
         // Check if size_spec is empty (for Type[])
         if size_spec.is_empty() {
@@ -136,7 +218,9 @@ fn parse_type(type_str: &str, known_types: &HashSet<String>, until: Option<&str>
         "i32" => HirType::I32,
         "i64" => HirType::I64,
         other => {
-            if known_types.contains(other) {
+            if enum_names.contains(other) {
+                HirType::Enum(other.to_string())
+            } else if known_types.contains(other) {
                 HirType::UserDefined(other.to_string())
             } else {
                 return Err(ParseError::UnknownType(other.to_string()));
