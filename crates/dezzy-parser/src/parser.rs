@@ -161,6 +161,7 @@ fn parse_field(
         doc: field.doc.clone(),
         field_type,
         assertion,
+        skip: field.skip.clone(),
     })
 }
 
@@ -316,6 +317,12 @@ fn parse_type(
     if type_str.starts_with("str(") && type_str.ends_with(')') {
         let length_field = type_str[4..type_str.len() - 1].to_string();
         return Ok(HirType::LengthPrefixedString { length_field });
+    }
+
+    // Handle blob: blob(size_field)
+    if type_str.starts_with("blob(") && type_str.ends_with(')') {
+        let size_field = type_str[5..type_str.len() - 1].to_string();
+        return Ok(HirType::Blob { size_field });
     }
 
     if let Some((element_type_str, size_spec)) = parse_array_type(type_str)? {

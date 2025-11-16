@@ -28,6 +28,7 @@ pub struct LirField {
     pub var_id: VarId,
     pub type_info: String,
     pub assertion: Option<HirAssertion>,
+    pub skip: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -92,6 +93,13 @@ pub enum LirOperation {
         dest: VarId,
         length_var: VarId,
     },
+    ReadBlob {
+        dest: VarId,
+        size_var: VarId,
+    },
+    Skip {
+        size_var: VarId,
+    },
     ReadStruct {
         dest: VarId,
         type_name: String,
@@ -155,6 +163,9 @@ pub enum LirOperation {
     WriteLengthPrefixedString {
         src: VarId,
         length_var: VarId,
+    },
+    WriteBlob {
+        src: VarId,
     },
     WriteStruct {
         src: VarId,

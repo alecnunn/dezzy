@@ -75,10 +75,19 @@ impl Pipeline {
                 var_id: field_var,
                 type_info,
                 assertion: field.assertion.clone(),
+                skip: field.skip.clone(),
             });
 
-            let read_op = self.lower_read_type(&field.field_type, field_var, format, &field_name_to_var)?;
-            read_ops.push(read_op);
+            // If this is a skip field, generate Skip operation instead of read
+            if let Some(ref skip_field) = field.skip {
+                let size_var = *field_name_to_var.get(skip_field).ok_or_else(|| {
+                    PipelineError::UnknownType(format!("Skip size field '{}' not found", skip_field))
+                })?;
+                read_ops.push(LirOperation::Skip { size_var });
+            } else {
+                let read_op = self.lower_read_type(&field.field_type, field_var, format, &field_name_to_var)?;
+                read_ops.push(read_op);
+            }
         }
 
         let result_var = self.next_var();
@@ -140,6 +149,7 @@ impl Pipeline {
             HirType::FixedString { size } => format!("str[{}]", size),
             HirType::NullTerminatedString => "cstr".to_string(),
             HirType::LengthPrefixedString { length_field } => format!("str({})", length_field),
+            HirType::Blob { size_field } => format!("blob({})", size_field),
             HirType::Enum(name) => name.clone(),
             HirType::UserDefined(name) => name.clone(),
         }
@@ -229,6 +239,15 @@ impl Pipeline {
                 LirOperation::ReadLengthPrefixedString {
                     dest,
                     length_var,
+                }
+            }
+            HirType::Blob { size_field } => {
+                let size_var = *field_map.get(size_field).ok_or_else(|| {
+                    PipelineError::UnknownType(format!("Blob size field '{}' not found", size_field))
+                })?;
+                LirOperation::ReadBlob {
+                    dest,
+                    size_var,
                 }
             }
             HirType::Enum(name) => {
@@ -333,6 +352,9 @@ impl Pipeline {
                     src,
                     length_var,
                 }
+            }
+            HirType::Blob { .. } => {
+                LirOperation::WriteBlob { src }
             }
             HirType::Enum(name) => {
                 // Look up the enum definition

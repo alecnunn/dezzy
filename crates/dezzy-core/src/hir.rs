@@ -55,6 +55,8 @@ pub struct HirField {
     pub doc: Option<String>,
     pub field_type: HirType,
     pub assertion: Option<HirAssertion>,
+    /// If set, skip N bytes instead of reading into field (N comes from this field reference)
+    pub skip: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -122,6 +124,10 @@ pub enum HirType {
     LengthPrefixedString {
         length_field: String,
     },
+    /// Raw byte blob with size from another field (e.g., blob(size_field))
+    Blob {
+        size_field: String,
+    },
     Enum(String),
     UserDefined(String),
 }
@@ -149,6 +155,7 @@ impl HirType {
             HirType::FixedString { size } => Some(*size),
             HirType::NullTerminatedString => None,
             HirType::LengthPrefixedString { .. } => None,
+            HirType::Blob { .. } => None, // Size determined at runtime from field
             HirType::Enum(_) => None, // Size determined by underlying type during lowering
             HirType::UserDefined(_) => None,
         }
