@@ -64,6 +64,11 @@ pub enum LirOperation {
         element_op: Box<LirOperation>,
         count: usize,
     },
+    ReadDynamicArray {
+        dest: VarId,
+        element_op: Box<LirOperation>,
+        size_var: VarId,
+    },
     ReadStruct {
         dest: VarId,
         type_name: String,
@@ -102,6 +107,11 @@ pub enum LirOperation {
         src: VarId,
         element_op: Box<LirOperation>,
         count: usize,
+    },
+    WriteDynamicArray {
+        src: VarId,
+        element_op: Box<LirOperation>,
+        size_var: VarId,
     },
     WriteStruct {
         src: VarId,

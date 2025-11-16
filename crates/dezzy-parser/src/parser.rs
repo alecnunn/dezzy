@@ -81,13 +81,23 @@ fn parse_field(field: &YamlField, known_types: &HashSet<String>) -> Result<HirFi
 }
 
 fn parse_type(type_str: &str, known_types: &HashSet<String>) -> Result<HirType, ParseError> {
-    if let Some(array_type) = parse_array_type(type_str)? {
-        let (element_type_str, size) = array_type;
+    if let Some((element_type_str, size_spec)) = parse_array_type(type_str)? {
         let element_type = parse_type(&element_type_str, known_types)?;
-        return Ok(HirType::Array {
-            element_type: Box::new(element_type),
-            size,
-        });
+
+        // Check if size_spec is a number or a field reference
+        if let Ok(size) = size_spec.parse::<usize>() {
+            // Fixed-size array
+            return Ok(HirType::Array {
+                element_type: Box::new(element_type),
+                size,
+            });
+        } else {
+            // Dynamic array (size from field)
+            return Ok(HirType::DynamicArray {
+                element_type: Box::new(element_type),
+                size_field: size_spec,
+            });
+        }
     }
 
     Ok(match type_str {
@@ -109,7 +119,7 @@ fn parse_type(type_str: &str, known_types: &HashSet<String>) -> Result<HirType, 
     })
 }
 
-fn parse_array_type(type_str: &str) -> Result<Option<(String, usize)>, ParseError> {
+fn parse_array_type(type_str: &str) -> Result<Option<(String, String)>, ParseError> {
     if let Some(bracket_pos) = type_str.find('[') {
         if !type_str.ends_with(']') {
             return Err(ParseError::InvalidValue {
@@ -119,13 +129,16 @@ fn parse_array_type(type_str: &str) -> Result<Option<(String, usize)>, ParseErro
         }
 
         let element_type = type_str[..bracket_pos].to_string();
-        let size_str = &type_str[bracket_pos + 1..type_str.len() - 1];
-        let size = size_str.parse::<usize>().map_err(|_| ParseError::InvalidValue {
-            field: "type".to_string(),
-            message: format!("Invalid array size: {}", size_str),
-        })?;
+        let size_str = type_str[bracket_pos + 1..type_str.len() - 1].to_string();
 
-        Ok(Some((element_type, size)))
+        if size_str.is_empty() {
+            return Err(ParseError::InvalidValue {
+                field: "type".to_string(),
+                message: format!("Array size cannot be empty: {}", type_str),
+            });
+        }
+
+        Ok(Some((element_type, size_str)))
     } else {
         Ok(None)
     }
@@ -165,6 +178,10 @@ types:
     fn test_parse_array_type() {
         let result = parse_array_type("u8[16]");
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), Some(("u8".to_string(), 16)));
+        assert_eq!(result.unwrap(), Some(("u8".to_string(), "16".to_string())));
+
+        let result2 = parse_array_type("u8[length]");
+        assert!(result2.is_ok());
+        assert_eq!(result2.unwrap(), Some(("u8".to_string(), "length".to_string())));
     }
 }

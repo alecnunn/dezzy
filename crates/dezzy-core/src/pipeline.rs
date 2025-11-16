@@ -1,5 +1,6 @@
 use crate::hir::{HirFormat, HirStruct, HirType, HirTypeDef};
 use crate::lir::{LirField, LirFormat, LirOperation, LirType, VarId};
+use std::collections::HashMap;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -46,10 +47,12 @@ impl Pipeline {
         let mut read_ops = Vec::new();
         let mut field_vars = Vec::new();
         let mut lir_fields = Vec::new();
+        let mut field_name_to_var: HashMap<String, VarId> = HashMap::new();
 
         for field in &struct_def.fields {
             let field_var = self.next_var();
             field_vars.push(field_var);
+            field_name_to_var.insert(field.name.clone(), field_var);
 
             let type_info = self.hir_type_to_string(&field.field_type);
             lir_fields.push(LirField {
@@ -59,7 +62,7 @@ impl Pipeline {
                 type_info,
             });
 
-            let read_op = self.lower_read_type(&field.field_type, field_var, format)?;
+            let read_op = self.lower_read_type(&field.field_type, field_var, format, &field_name_to_var)?;
             read_ops.push(read_op);
         }
 
@@ -81,7 +84,7 @@ impl Pipeline {
                 field_index: idx,
             });
 
-            let write_op = self.lower_write_type(&field.field_type, field_var, format)?;
+            let write_op = self.lower_write_type(&field.field_type, field_var, format, &field_name_to_var)?;
             write_ops.push(write_op);
         }
 
@@ -110,6 +113,9 @@ impl Pipeline {
             HirType::Array { element_type, size } => {
                 format!("{}[{}]", self.hir_type_to_string(element_type), size)
             }
+            HirType::DynamicArray { element_type, size_field } => {
+                format!("{}[{}]", self.hir_type_to_string(element_type), size_field)
+            }
             HirType::UserDefined(name) => name.clone(),
         }
     }
@@ -119,6 +125,7 @@ impl Pipeline {
         ty: &HirType,
         dest: VarId,
         format: &HirFormat,
+        field_map: &HashMap<String, VarId>,
     ) -> Result<LirOperation, PipelineError> {
         Ok(match ty {
             HirType::U8 => LirOperation::ReadU8 { dest },
@@ -149,11 +156,23 @@ impl Pipeline {
             },
             HirType::Array { element_type, size } => {
                 let dummy_var = self.next_var();
-                let element_op = self.lower_read_type(element_type, dummy_var, format)?;
+                let element_op = self.lower_read_type(element_type, dummy_var, format, field_map)?;
                 LirOperation::ReadArray {
                     dest,
                     element_op: Box::new(element_op),
                     count: *size,
+                }
+            }
+            HirType::DynamicArray { element_type, size_field } => {
+                let size_var = *field_map.get(size_field).ok_or_else(|| {
+                    PipelineError::UnknownType(format!("Size field '{}' not found", size_field))
+                })?;
+                let dummy_var = self.next_var();
+                let element_op = self.lower_read_type(element_type, dummy_var, format, field_map)?;
+                LirOperation::ReadDynamicArray {
+                    dest,
+                    element_op: Box::new(element_op),
+                    size_var,
                 }
             }
             HirType::UserDefined(name) => LirOperation::ReadStruct {
@@ -168,6 +187,7 @@ impl Pipeline {
         ty: &HirType,
         src: VarId,
         format: &HirFormat,
+        field_map: &HashMap<String, VarId>,
     ) -> Result<LirOperation, PipelineError> {
         Ok(match ty {
             HirType::U8 => LirOperation::WriteU8 { src },
@@ -198,11 +218,23 @@ impl Pipeline {
             },
             HirType::Array { element_type, size } => {
                 let dummy_var = self.next_var();
-                let element_op = self.lower_write_type(element_type, dummy_var, format)?;
+                let element_op = self.lower_write_type(element_type, dummy_var, format, field_map)?;
                 LirOperation::WriteArray {
                     src,
                     element_op: Box::new(element_op),
                     count: *size,
+                }
+            }
+            HirType::DynamicArray { element_type, size_field } => {
+                let size_var = *field_map.get(size_field).ok_or_else(|| {
+                    PipelineError::UnknownType(format!("Size field '{}' not found", size_field))
+                })?;
+                let dummy_var = self.next_var();
+                let element_op = self.lower_write_type(element_type, dummy_var, format, field_map)?;
+                LirOperation::WriteDynamicArray {
+                    src,
+                    element_op: Box::new(element_op),
+                    size_var,
                 }
             }
             HirType::UserDefined(name) => LirOperation::WriteStruct {
