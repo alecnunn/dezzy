@@ -7,14 +7,24 @@ pub type VarId = usize;
 pub struct LirFormat {
     pub name: String,
     pub types: Vec<LirType>,
+    pub endianness: Endianness,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LirType {
     pub name: String,
+    pub fields: Vec<LirField>,
     pub operations: Vec<LirOperation>,
     pub read_result: VarId,
     pub write_param: VarId,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LirField {
+    pub name: String,
+    pub doc: Option<String>,
+    pub var_id: VarId,
+    pub type_info: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

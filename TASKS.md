@@ -36,11 +36,14 @@ Phase 1: Core Infrastructure - COMPLETE
 - [x] File I/O and error reporting
 - [x] Example format (simple.yaml)
 
+## Recent Updates (Phase 1.8)
+- [x] Use actual field names in generated C++ code
+- [x] Preserve endianness from YAML format to LIR
+- [x] Add field metadata to LIR
+
 ## Known Issues / TODOs
 
 ### High Priority
-- [ ] Use actual field names in generated C++ code (currently using field_0, field_1, etc.)
-- [ ] Preserve endianness from YAML format to LIR (currently hardcoded)
 - [ ] Add comprehensive unit tests for each crate
 - [ ] Add integration tests with real formats
 - [ ] Improve error messages with ariadne (currently basic)

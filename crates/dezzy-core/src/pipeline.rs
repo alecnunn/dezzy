@@ -1,5 +1,5 @@
 use crate::hir::{HirFormat, HirStruct, HirType, HirTypeDef};
-use crate::lir::{LirFormat, LirOperation, LirType, VarId};
+use crate::lir::{LirField, LirFormat, LirOperation, LirType, VarId};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -34,6 +34,7 @@ impl Pipeline {
         Ok(LirFormat {
             name: hir.name,
             types: lir_types,
+            endianness: hir.endianness,
         })
     }
 
@@ -44,10 +45,19 @@ impl Pipeline {
     ) -> Result<LirType, PipelineError> {
         let mut read_ops = Vec::new();
         let mut field_vars = Vec::new();
+        let mut lir_fields = Vec::new();
 
         for field in &struct_def.fields {
             let field_var = self.next_var();
             field_vars.push(field_var);
+
+            let type_info = self.hir_type_to_string(&field.field_type);
+            lir_fields.push(LirField {
+                name: field.name.clone(),
+                doc: field.doc.clone(),
+                var_id: field_var,
+                type_info,
+            });
 
             let read_op = self.lower_read_type(&field.field_type, field_var, format)?;
             read_ops.push(read_op);
@@ -80,10 +90,28 @@ impl Pipeline {
 
         Ok(LirType {
             name: struct_def.name.clone(),
+            fields: lir_fields,
             operations: all_ops,
             read_result: result_var,
             write_param,
         })
+    }
+
+    fn hir_type_to_string(&self, ty: &HirType) -> String {
+        match ty {
+            HirType::U8 => "u8".to_string(),
+            HirType::U16 => "u16".to_string(),
+            HirType::U32 => "u32".to_string(),
+            HirType::U64 => "u64".to_string(),
+            HirType::I8 => "i8".to_string(),
+            HirType::I16 => "i16".to_string(),
+            HirType::I32 => "i32".to_string(),
+            HirType::I64 => "i64".to_string(),
+            HirType::Array { element_type, size } => {
+                format!("{}[{}]", self.hir_type_to_string(element_type), size)
+            }
+            HirType::UserDefined(name) => name.clone(),
+        }
     }
 
     fn lower_read_type(
