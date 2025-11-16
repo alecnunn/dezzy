@@ -1,4 +1,4 @@
-use crate::hir::{HirFormat, HirPrimitiveType, HirStruct, HirType, HirTypeDef};
+use crate::hir::{HirFormat, HirPrimitiveType, HirStruct, HirType, HirTypeDef, Skip};
 use crate::lir::{LirField, LirFormat, LirOperation, LirType, VarId};
 use std::collections::HashMap;
 use thiserror::Error;
@@ -130,9 +130,24 @@ impl Pipeline {
         let write_param = self.next_var();
 
         for (idx, field) in struct_def.fields.iter().enumerate() {
-            // Skip fields with skip directive - they should not be written
-            if field.skip.is_some() {
-                continue;
+            // Handle skip/padding/alignment directives
+            if let Some(ref skip) = field.skip {
+                match skip {
+                    Skip::Fixed(bytes) => {
+                        // Fixed padding - write N zero bytes
+                        write_ops.push(LirOperation::WritePadFixed { bytes: *bytes });
+                        continue;
+                    }
+                    Skip::Align(boundary) => {
+                        // Alignment - write padding bytes to align to boundary
+                        write_ops.push(LirOperation::WriteAlign { boundary: *boundary });
+                        continue;
+                    }
+                    Skip::Variable(_) => {
+                        // Variable skip - don't write anything
+                        continue;
+                    }
+                }
             }
 
             let field_var = self.next_var();

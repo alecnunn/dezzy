@@ -186,17 +186,29 @@ fn generate_type(lir_type: &LirType, endianness: Endianness, enums: &[HirEnum]) 
     code.push_str(&format!("        \"\"\"Write {} to bytes\"\"\"\n", lir_type.name));
     code.push_str(&format!("        result = bytearray()\n"));
 
-    code.push_str(&generate_write_impl(lir_type, endianness, enums)?);
+    // Check if we need BitWriter
+    let has_write_bits = lir_type.operations.iter().any(|op| matches!(op, LirOperation::WriteBits { .. }));
+    if has_write_bits {
+        code.push_str("        # BitWriter state (initialized on first use)\n");
+        code.push_str("        if not hasattr(self.write, '_bit_buffer'):\n");
+        code.push_str("            self.write._bit_buffer = 0\n");
+        code.push_str("            self.write._bits_used = 0\n");
+        code.push_str("        \n");
+    }
+
+    code.push_str(&generate_write_from_operations(lir_type, endianness, enums)?);
 
     // Flush any remaining bits from BitWriter
-    code.push_str("        \n");
-    code.push_str("        # Flush any remaining bits in BitWriter\n");
-    code.push_str("        if hasattr(self.write, '_bits_used') and self.write._bits_used > 0:\n");
-    code.push_str("            self.write._bit_buffer <<= (8 - self.write._bits_used)\n");
-    code.push_str("            result.extend(struct.pack('B', self.write._bit_buffer))\n");
-    code.push_str("            self.write._bit_buffer = 0\n");
-    code.push_str("            self.write._bits_used = 0\n");
-    code.push_str("        \n");
+    if has_write_bits {
+        code.push_str("        \n");
+        code.push_str("        # Flush any remaining bits in BitWriter\n");
+        code.push_str("        if self.write._bits_used > 0:\n");
+        code.push_str("            self.write._bit_buffer <<= (8 - self.write._bits_used)\n");
+        code.push_str("            result.extend(struct.pack('B', self.write._bit_buffer))\n");
+        code.push_str("            self.write._bit_buffer = 0\n");
+        code.push_str("            self.write._bits_used = 0\n");
+        code.push_str("        \n");
+    }
 
     code.push_str(&format!("        return bytes(result)\n"));
 
@@ -625,6 +637,128 @@ fn endian_to_char(endianness: Endianness) -> char {
         Endianness::Big => '>',
         Endianness::Native => '=',
     }
+}
+
+fn generate_write_from_operations(
+    lir_type: &LirType,
+    endianness: Endianness,
+    enums: &[HirEnum],
+) -> Result<String, String> {
+    let mut code = String::new();
+    let endian_char = endian_to_char(endianness);
+
+    // Build var_to_field map
+    let mut var_to_field = std::collections::HashMap::new();
+    let mut in_write_section = false;
+
+    // Build enum map
+    let mut enum_types = std::collections::HashMap::new();
+    for enum_def in enums {
+        enum_types.insert(enum_def.name.clone(), enum_def.underlying_type);
+    }
+
+    for op in &lir_type.operations {
+        // AccessField marks the start of write operations
+        if let LirOperation::AccessField { dest, field_index, .. } = op {
+            in_write_section = true;
+            if *field_index < lir_type.fields.len() {
+                var_to_field.insert(*dest, lir_type.fields[*field_index].name.clone());
+            }
+            continue;
+        }
+
+        if !in_write_section {
+            continue;
+        }
+
+        match op {
+            LirOperation::WriteU8 { src } => {
+                let field_name = var_to_field.get(src).ok_or("Unknown var_id")?;
+                code.push_str(&format!("        result.extend(struct.pack('B', self.{}))\n", field_name));
+            }
+            LirOperation::WriteU16 { src, .. } => {
+                let field_name = var_to_field.get(src).ok_or("Unknown var_id")?;
+                code.push_str(&format!("        result.extend(struct.pack('{}H', self.{}))\n", endian_char, field_name));
+            }
+            LirOperation::WriteU32 { src, .. } => {
+                let field_name = var_to_field.get(src).ok_or("Unknown var_id")?;
+                code.push_str(&format!("        result.extend(struct.pack('{}I', self.{}))\n", endian_char, field_name));
+            }
+            LirOperation::WriteU64 { src, .. } => {
+                let field_name = var_to_field.get(src).ok_or("Unknown var_id")?;
+                code.push_str(&format!("        result.extend(struct.pack('{}Q', self.{}))\n", endian_char, field_name));
+            }
+            LirOperation::WriteI8 { src } => {
+                let field_name = var_to_field.get(src).ok_or("Unknown var_id")?;
+                code.push_str(&format!("        result.extend(struct.pack('b', self.{}))\n", field_name));
+            }
+            LirOperation::WriteI16 { src, .. } => {
+                let field_name = var_to_field.get(src).ok_or("Unknown var_id")?;
+                code.push_str(&format!("        result.extend(struct.pack('{}h', self.{}))\n", endian_char, field_name));
+            }
+            LirOperation::WriteI32 { src, .. } => {
+                let field_name = var_to_field.get(src).ok_or("Unknown var_id")?;
+                code.push_str(&format!("        result.extend(struct.pack('{}i', self.{}))\n", endian_char, field_name));
+            }
+            LirOperation::WriteI64 { src, .. } => {
+                let field_name = var_to_field.get(src).ok_or("Unknown var_id")?;
+                code.push_str(&format!("        result.extend(struct.pack('{}q', self.{}))\n", endian_char, field_name));
+            }
+            LirOperation::WriteBits { src, num_bits } => {
+                let field_name = var_to_field.get(src).ok_or("Unknown var_id")?;
+                code.push_str(&format!("        # Write {} bits (MSB first)\n", num_bits));
+                code.push_str(&format!("        value = self.{}\n", field_name));
+                code.push_str(&format!("        bits_to_write = {}\n", num_bits));
+                code.push_str("        while bits_to_write > 0:\n");
+                code.push_str("            bits_this_round = min(bits_to_write, 8 - self.write._bits_used)\n");
+                code.push_str("            bits = (value >> (bits_to_write - bits_this_round)) & ((1 << bits_this_round) - 1)\n");
+                code.push_str("            self.write._bit_buffer = (self.write._bit_buffer << bits_this_round) | bits\n");
+                code.push_str("            self.write._bits_used += bits_this_round\n");
+                code.push_str("            bits_to_write -= bits_this_round\n");
+                code.push_str("            \n");
+                code.push_str("            if self.write._bits_used == 8:\n");
+                code.push_str("                result.extend(struct.pack('B', self.write._bit_buffer))\n");
+                code.push_str("                self.write._bit_buffer = 0\n");
+                code.push_str("                self.write._bits_used = 0\n");
+            }
+            LirOperation::WritePadFixed { bytes } => {
+                code.push_str(&format!("        result.extend(b'\\x00' * {})  # fixed padding\n", bytes));
+            }
+            LirOperation::WriteAlign { boundary } => {
+                code.push_str(&format!("        # Align to {}-byte boundary\n", boundary));
+                code.push_str(&format!("        padding = ({} - (len(result) % {})) % {}\n", boundary, boundary, boundary));
+                code.push_str("        result.extend(b'\\x00' * padding)\n");
+            }
+            LirOperation::WriteBlob { src } => {
+                let field_name = var_to_field.get(src).ok_or("Unknown var_id")?;
+                code.push_str(&format!("        result.extend(self.{})\n", field_name));
+            }
+            LirOperation::WriteNullTerminatedString { src } => {
+                let field_name = var_to_field.get(src).ok_or("Unknown var_id")?;
+                code.push_str(&format!("        result.extend(self.{}.encode('utf-8'))\n", field_name));
+                code.push_str("        result.extend(struct.pack('B', 0))  # null terminator\n");
+            }
+            LirOperation::WriteFixedString { src, length } => {
+                let field_name = var_to_field.get(src).ok_or("Unknown var_id")?;
+                code.push_str(&format!("        encoded = self.{}.encode('utf-8')\n", field_name));
+                code.push_str(&format!("        for i in range({}):\n", length));
+                code.push_str("            result.extend(struct.pack('B', encoded[i] if i < len(encoded) else 0))\n");
+            }
+            LirOperation::WriteLengthPrefixedString { src, .. } => {
+                let field_name = var_to_field.get(src).ok_or("Unknown var_id")?;
+                code.push_str(&format!("        result.extend(self.{}.encode('utf-8'))\n", field_name));
+            }
+            LirOperation::WriteStruct { src, .. } => {
+                let field_name = var_to_field.get(src).ok_or("Unknown var_id")?;
+                code.push_str(&format!("        result.extend(self.{}.write())\n", field_name));
+            }
+            _ => {
+                // Other operations (like WriteArray) - we'll skip for now
+            }
+        }
+    }
+
+    Ok(code)
 }
 
 fn generate_read_impl(lir_type: &LirType, endianness: Endianness) -> Result<String, String> {

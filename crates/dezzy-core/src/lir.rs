@@ -178,6 +178,12 @@ pub enum LirOperation {
     WriteBlob {
         src: VarId,
     },
+    WritePadFixed {
+        bytes: usize,
+    },
+    WriteAlign {
+        boundary: usize,
+    },
     WriteBits {
         src: VarId,
         num_bits: u8,

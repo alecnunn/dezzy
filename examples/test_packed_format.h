@@ -227,11 +227,14 @@ inline void PackedHeader::write(Writer& writer) const {
     bit_writer.write_bits_msb(compressed, 1);
     bit_writer.write_bits_msb(encrypted, 1);
     bit_writer.write_bits_msb(reserved_bits, 3);
+    writer.write_padding(2);
     writer.write_le(data_size);
+    writer.align(8);
     writer.write_le(data_offset);
     bit_writer.write_bits_msb(priority, 2);
     bit_writer.write_bits_msb(status, 3);
     bit_writer.write_bits_msb(flags, 3);
+    writer.align(4);
     writer.write_le(checksum);
 }
 

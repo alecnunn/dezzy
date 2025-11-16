@@ -683,6 +683,12 @@ impl CppBackend {
                 code.push_str(&format!("    bit_writer.write_bits_msb({}, {});\n", field_name, num_bits));
                 code
             }
+            LirOperation::WritePadFixed { bytes } => {
+                format!("    writer.write_padding({});\n", bytes)
+            }
+            LirOperation::WriteAlign { boundary } => {
+                format!("    writer.align({});\n", boundary)
+            }
             _ => String::new(),
         })
     }
