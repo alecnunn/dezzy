@@ -60,12 +60,23 @@ impl CppBackend {
     }
 
     fn lir_type_to_cpp_type(&self, type_str: &str) -> String {
+        // Handle string types
+        if type_str == "cstr" || type_str.starts_with("str(") {
+            return "std::string".to_string();
+        }
+
         if let Some(bracket_pos) = type_str.find('[') {
             if !type_str.ends_with(']') {
                 return type_str.to_string();
             }
             let element_type = &type_str[..bracket_pos];
             let size_str = &type_str[bracket_pos + 1..type_str.len() - 1];
+
+            // Special case: str[N] is a fixed-length string
+            if element_type == "str" {
+                return "std::string".to_string();
+            }
+
             let cpp_element_type = self.lir_type_to_cpp_type(element_type);
 
             // Try to parse as fixed size
@@ -380,6 +391,47 @@ impl CppBackend {
                 let field_name = var_to_field.get(dest).map(|s| s.as_str()).unwrap_or("unknown");
                 format!("    result.{} = {}::read(reader);\n", field_name, type_name)
             }
+            LirOperation::ReadFixedString { dest, length } => {
+                let field_name = var_to_field.get(dest).map(|s| s.as_str()).unwrap_or("unknown");
+                let mut code = String::new();
+                code.push_str("    {\n");
+                code.push_str(&format!("        std::vector<uint8_t> bytes({});\n", length));
+                code.push_str(&format!("        for (size_t i = 0; i < {}; ++i) {{\n", length));
+                code.push_str("            bytes[i] = reader.read_le<uint8_t>();\n");
+                code.push_str("        }\n");
+                code.push_str(&format!("        result.{} = std::string(reinterpret_cast<const char*>(bytes.data()), bytes.size());\n", field_name));
+                code.push_str("    }\n");
+                add_assertion(&mut code, dest);
+                code
+            }
+            LirOperation::ReadNullTerminatedString { dest } => {
+                let field_name = var_to_field.get(dest).map(|s| s.as_str()).unwrap_or("unknown");
+                let mut code = String::new();
+                code.push_str("    {\n");
+                code.push_str("        std::vector<uint8_t> bytes;\n");
+                code.push_str("        uint8_t byte;\n");
+                code.push_str("        while ((byte = reader.read_le<uint8_t>()) != 0) {\n");
+                code.push_str("            bytes.push_back(byte);\n");
+                code.push_str("        }\n");
+                code.push_str(&format!("        result.{} = std::string(reinterpret_cast<const char*>(bytes.data()), bytes.size());\n", field_name));
+                code.push_str("    }\n");
+                add_assertion(&mut code, dest);
+                code
+            }
+            LirOperation::ReadLengthPrefixedString { dest, length_var } => {
+                let field_name = var_to_field.get(dest).map(|s| s.as_str()).unwrap_or("unknown");
+                let length_field = var_to_field.get(length_var).map(|s| s.as_str()).unwrap_or("unknown");
+                let mut code = String::new();
+                code.push_str("    {\n");
+                code.push_str(&format!("        std::vector<uint8_t> bytes(result.{});\n", length_field));
+                code.push_str(&format!("        for (size_t i = 0; i < result.{}; ++i) {{\n", length_field));
+                code.push_str("            bytes[i] = reader.read_le<uint8_t>();\n");
+                code.push_str("        }\n");
+                code.push_str(&format!("        result.{} = std::string(reinterpret_cast<const char*>(bytes.data()), bytes.size());\n", field_name));
+                code.push_str("    }\n");
+                add_assertion(&mut code, dest);
+                code
+            }
             _ => String::new(),
         })
     }
@@ -530,6 +582,31 @@ impl CppBackend {
             LirOperation::WriteStruct { src, .. } => {
                 let field_name = var_to_field.get(src).map(|s| s.as_str()).unwrap_or("unknown");
                 format!("    {}.write(writer);\n", field_name)
+            }
+            LirOperation::WriteFixedString { src, length } => {
+                let field_name = var_to_field.get(src).map(|s| s.as_str()).unwrap_or("unknown");
+                let mut code = String::new();
+                code.push_str(&format!("    for (size_t i = 0; i < {}; ++i) {{\n", length));
+                code.push_str(&format!("        writer.write_le(static_cast<uint8_t>({}.size() > i ? {}[i] : 0));\n", field_name, field_name));
+                code.push_str("    }\n");
+                code
+            }
+            LirOperation::WriteNullTerminatedString { src } => {
+                let field_name = var_to_field.get(src).map(|s| s.as_str()).unwrap_or("unknown");
+                let mut code = String::new();
+                code.push_str(&format!("    for (size_t i = 0; i < {}.size(); ++i) {{\n", field_name));
+                code.push_str(&format!("        writer.write_le(static_cast<uint8_t>({}[i]));\n", field_name));
+                code.push_str("    }\n");
+                code.push_str("    writer.write_le(static_cast<uint8_t>(0));  // null terminator\n");
+                code
+            }
+            LirOperation::WriteLengthPrefixedString { src, .. } => {
+                let field_name = var_to_field.get(src).map(|s| s.as_str()).unwrap_or("unknown");
+                let mut code = String::new();
+                code.push_str(&format!("    for (size_t i = 0; i < {}.size(); ++i) {{\n", field_name));
+                code.push_str(&format!("        writer.write_le(static_cast<uint8_t>({}[i]));\n", field_name));
+                code.push_str("    }\n");
+                code
             }
             _ => String::new(),
         })

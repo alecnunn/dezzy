@@ -188,12 +188,23 @@ fn generate_type(lir_type: &LirType, endianness: Endianness, enums: &[HirEnum]) 
 }
 
 fn lir_type_to_python(type_str: &str) -> String {
+    // Handle string types
+    if type_str == "cstr" || type_str.starts_with("str(") {
+        return "str".to_string();
+    }
+
     // Check for arrays
     if let Some(bracket_pos) = type_str.find('[') {
         if !type_str.ends_with(']') {
             return type_str.to_string();
         }
         let element_type = &type_str[..bracket_pos];
+
+        // Special case: str[N] is a fixed-length string
+        if element_type == "str" {
+            return "str".to_string();
+        }
+
         let py_element = lir_type_to_python(element_type);
         return format!("List[{}]", py_element);
     }
@@ -413,6 +424,43 @@ fn generate_read_from_operations(
                 code.push_str(&format!("        {}, bytes_read = {}.read(buffer, pos)\n", field_name, type_name));
                 code.push_str("        pos += bytes_read\n");
             }
+            LirOperation::ReadFixedString { dest, length } => {
+                let field_name = var_to_field.get(dest).ok_or("Unknown var_id")?;
+                code.push_str(&format!("        {} = buffer[pos:pos + {}].decode('utf-8', errors='replace')\n", field_name, length));
+                code.push_str(&format!("        pos += {}\n", length));
+                if let Some(field) = fields.iter().find(|f| f.var_id == *dest) {
+                    if let Some(ref assertion) = field.assertion {
+                        code.push_str(&generate_assertion_check(field_name, assertion));
+                    }
+                }
+            }
+            LirOperation::ReadNullTerminatedString { dest } => {
+                let field_name = var_to_field.get(dest).ok_or("Unknown var_id")?;
+                code.push_str("        string_bytes = bytearray()\n");
+                code.push_str("        while True:\n");
+                code.push_str("            byte = struct.unpack_from('B', buffer, pos)[0]\n");
+                code.push_str("            pos += 1\n");
+                code.push_str("            if byte == 0:\n");
+                code.push_str("                break\n");
+                code.push_str("            string_bytes.append(byte)\n");
+                code.push_str(&format!("        {} = string_bytes.decode('utf-8', errors='replace')\n", field_name));
+                if let Some(field) = fields.iter().find(|f| f.var_id == *dest) {
+                    if let Some(ref assertion) = field.assertion {
+                        code.push_str(&generate_assertion_check(field_name, assertion));
+                    }
+                }
+            }
+            LirOperation::ReadLengthPrefixedString { dest, length_var } => {
+                let field_name = var_to_field.get(dest).ok_or("Unknown var_id")?;
+                let length_field = var_to_field.get(length_var).ok_or("Unknown length_var")?;
+                code.push_str(&format!("        {} = buffer[pos:pos + {}].decode('utf-8', errors='replace')\n", field_name, length_field));
+                code.push_str(&format!("        pos += {}\n", length_field));
+                if let Some(field) = fields.iter().find(|f| f.var_id == *dest) {
+                    if let Some(ref assertion) = field.assertion {
+                        code.push_str(&generate_assertion_check(field_name, assertion));
+                    }
+                }
+            }
             LirOperation::CreateStruct { .. } | LirOperation::AccessField { .. } => {
                 // These operations are handled implicitly in Python
                 // CreateStruct: we just return the collected fields
@@ -606,9 +654,33 @@ fn generate_write_impl(lir_type: &LirType, endianness: Endianness, enums: &[HirE
         let field_name = &field.name;
         let type_info = &field.type_info;
 
+        // Handle string types
+        if type_info == "cstr" {
+            // Null-terminated string
+            code.push_str(&format!("        result.extend(self.{}.encode('utf-8'))\n", field_name));
+            code.push_str("        result.extend(struct.pack('B', 0))  # null terminator\n");
+            continue;
+        } else if type_info.starts_with("str(") {
+            // Length-prefixed string
+            code.push_str(&format!("        result.extend(self.{}.encode('utf-8'))\n", field_name));
+            continue;
+        }
+
         if let Some(bracket_pos) = type_info.find('[') {
-            // Array type
             let element_type = &type_info[..bracket_pos];
+
+            // Special case: str[N] is a fixed-length string
+            if element_type == "str" {
+                let size_str = &type_info[bracket_pos + 1..type_info.len() - 1];
+                if let Ok(size) = size_str.parse::<usize>() {
+                    code.push_str(&format!("        encoded = self.{}.encode('utf-8')\n", field_name));
+                    code.push_str(&format!("        for i in range({}):\n", size));
+                    code.push_str("            result.extend(struct.pack('B', encoded[i] if i < len(encoded) else 0))\n");
+                    continue;
+                }
+            }
+
+            // Array type
             code.push_str(&format!("        for item in self.{}:\n", field_name));
             if is_primitive(element_type) {
                 let fmt = type_to_format(element_type);
