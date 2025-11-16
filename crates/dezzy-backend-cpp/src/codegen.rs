@@ -53,6 +53,7 @@ impl CppBackend {
         let fields = lir_type
             .fields
             .iter()
+            .filter(|f| f.skip.is_none())  // Exclude skip fields from struct
             .map(|f| (f.name.clone(), self.lir_type_to_cpp_type(&f.type_info)))
             .collect();
 
@@ -63,6 +64,11 @@ impl CppBackend {
         // Handle string types
         if type_str == "cstr" || type_str.starts_with("str(") {
             return "std::string".to_string();
+        }
+
+        // Handle blob type
+        if type_str.starts_with("blob(") {
+            return "std::vector<uint8_t>".to_string();
         }
 
         if let Some(bracket_pos) = type_str.find('[') {
@@ -432,6 +438,21 @@ impl CppBackend {
                 add_assertion(&mut code, dest);
                 code
             }
+            LirOperation::ReadBlob { dest, size_var } => {
+                let field_name = var_to_field.get(dest).map(|s| s.as_str()).unwrap_or("unknown");
+                let size_field = var_to_field.get(size_var).map(|s| s.as_str()).unwrap_or("unknown");
+                let mut code = String::new();
+                code.push_str(&format!("    result.{}.resize(result.{});\n", field_name, size_field));
+                code.push_str(&format!("    for (size_t i = 0; i < result.{}; ++i) {{\n", size_field));
+                code.push_str(&format!("        result.{}[i] = reader.read_le<uint8_t>();\n", field_name));
+                code.push_str("    }\n");
+                add_assertion(&mut code, dest);
+                code
+            }
+            LirOperation::Skip { size_var } => {
+                let size_field = var_to_field.get(size_var).map(|s| s.as_str()).unwrap_or("unknown");
+                format!("    reader.skip(result.{});\n", size_field)
+            }
             _ => String::new(),
         })
     }
@@ -605,6 +626,14 @@ impl CppBackend {
                 let mut code = String::new();
                 code.push_str(&format!("    for (size_t i = 0; i < {}.size(); ++i) {{\n", field_name));
                 code.push_str(&format!("        writer.write_le(static_cast<uint8_t>({}[i]));\n", field_name));
+                code.push_str("    }\n");
+                code
+            }
+            LirOperation::WriteBlob { src } => {
+                let field_name = var_to_field.get(src).map(|s| s.as_str()).unwrap_or("unknown");
+                let mut code = String::new();
+                code.push_str(&format!("    for (size_t i = 0; i < {}.size(); ++i) {{\n", field_name));
+                code.push_str(&format!("        writer.write_le({}[i]);\n", field_name));
                 code.push_str("    }\n");
                 code
             }

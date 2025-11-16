@@ -142,8 +142,11 @@ fn generate_type(lir_type: &LirType, endianness: Endianness, enums: &[HirEnum]) 
     code.push_str(&format!("@dataclass\n"));
     code.push_str(&format!("class {}:\n", lir_type.name));
 
-    // Fields
+    // Fields (exclude skip fields)
     for field in &lir_type.fields {
+        if field.skip.is_some() {
+            continue;  // Skip fields are not part of the struct
+        }
         let py_type = lir_type_to_python(&field.type_info);
         if let Some(doc) = &field.doc {
             code.push_str(&format!("    {}: {}  # {}\n", field.name, py_type, doc));
@@ -169,8 +172,11 @@ fn generate_type(lir_type: &LirType, endianness: Endianness, enums: &[HirEnum]) 
     // Generate read logic based on operations
     code.push_str(&generate_read_from_operations(&lir_type.operations, &var_to_field, &lir_type.fields, endianness)?);
 
-    // Create instance with collected fields
-    let field_names: Vec<_> = lir_type.fields.iter().map(|f| f.name.as_str()).collect();
+    // Create instance with collected fields (exclude skip fields)
+    let field_names: Vec<_> = lir_type.fields.iter()
+        .filter(|f| f.skip.is_none())
+        .map(|f| f.name.as_str())
+        .collect();
     code.push_str(&format!("        return {}({}), pos - offset\n", lir_type.name, field_names.join(", ")));
 
     code.push_str("\n");
@@ -191,6 +197,11 @@ fn lir_type_to_python(type_str: &str) -> String {
     // Handle string types
     if type_str == "cstr" || type_str.starts_with("str(") {
         return "str".to_string();
+    }
+
+    // Handle blob type
+    if type_str.starts_with("blob(") {
+        return "bytes".to_string();
     }
 
     // Check for arrays
@@ -461,6 +472,21 @@ fn generate_read_from_operations(
                     }
                 }
             }
+            LirOperation::ReadBlob { dest, size_var } => {
+                let field_name = var_to_field.get(dest).ok_or("Unknown var_id")?;
+                let size_field = var_to_field.get(size_var).ok_or("Unknown size_var")?;
+                code.push_str(&format!("        {} = buffer[pos:pos + {}]\n", field_name, size_field));
+                code.push_str(&format!("        pos += {}\n", size_field));
+                if let Some(field) = fields.iter().find(|f| f.var_id == *dest) {
+                    if let Some(ref assertion) = field.assertion {
+                        code.push_str(&generate_assertion_check(field_name, assertion));
+                    }
+                }
+            }
+            LirOperation::Skip { size_var } => {
+                let size_field = var_to_field.get(size_var).ok_or("Unknown size_var")?;
+                code.push_str(&format!("        pos += {}  # skip\n", size_field));
+            }
             LirOperation::CreateStruct { .. } | LirOperation::AccessField { .. } => {
                 // These operations are handled implicitly in Python
                 // CreateStruct: we just return the collected fields
@@ -651,8 +677,18 @@ fn generate_write_impl(lir_type: &LirType, endianness: Endianness, enums: &[HirE
     }
 
     for field in &lir_type.fields {
+        if field.skip.is_some() {
+            continue;  // Skip fields are not written
+        }
+
         let field_name = &field.name;
         let type_info = &field.type_info;
+
+        // Handle blob type
+        if type_info.starts_with("blob(") {
+            code.push_str(&format!("        result.extend(self.{})\n", field_name));
+            continue;
+        }
 
         // Handle string types
         if type_info == "cstr" {

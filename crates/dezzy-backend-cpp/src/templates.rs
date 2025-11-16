@@ -48,6 +48,13 @@ public:
         return value;
     }}
 
+    void skip(size_t bytes) {{
+        if (position_ + bytes > data_.size()) {{
+            throw ParseError("Unexpected end of data during skip");
+        }}
+        position_ += bytes;
+    }}
+
     size_t position() const {{ return position_; }}
     size_t remaining() const {{ return data_.size() - position_; }}
 
