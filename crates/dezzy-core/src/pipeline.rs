@@ -44,9 +44,10 @@ pub struct Pipeline {
 
 impl Pipeline {
     pub fn new() -> Self {
-        Self { next_var_id: 0 }
+        Self { next_var_id: VarId::new(0) }
     }
 
+    #[must_use]
     pub fn lower(&mut self, hir: HirFormat) -> Result<LirFormat, PipelineError> {
         let mut lir_types = Vec::new();
 
@@ -488,7 +489,7 @@ impl Pipeline {
 
     fn next_var(&mut self) -> VarId {
         let id = self.next_var_id;
-        self.next_var_id += 1;
+        self.next_var_id = VarId::new(self.next_var_id.get() + 1);
         id
     }
 }

@@ -1,3 +1,6 @@
+#![warn(clippy::all, clippy::pedantic)]
+#![allow(clippy::struct_excessive_bools)]
+
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use dezzy_backend::{PluginRegistry, WasmBackend};

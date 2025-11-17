@@ -1,6 +1,7 @@
 use dezzy_core::expr::{ComparisonOp, Expr, IndexExpr, Literal, LogicalOp};
 
 /// Generate Python code for an expression
+#[must_use]
 pub fn generate_expr(expr: &Expr, array_name: &str) -> Result<String, String> {
     Ok(match expr {
         Expr::Variable(name) => {

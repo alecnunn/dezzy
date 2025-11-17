@@ -2,7 +2,24 @@ use crate::expr::Expr;
 use crate::hir::{Endianness, HirAssertion, HirEnum};
 use serde::{Deserialize, Serialize};
 
-pub type VarId = usize;
+/// Type-safe wrapper for variable IDs in LIR
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct VarId(usize);
+
+impl VarId {
+    /// Create a new VarId from a usize
+    #[must_use]
+    pub const fn new(id: usize) -> Self {
+        Self(id)
+    }
+
+    /// Get the underlying usize value
+    #[must_use]
+    pub const fn get(self) -> usize {
+        self.0
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LirFormat {

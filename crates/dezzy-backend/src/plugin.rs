@@ -28,6 +28,7 @@ impl PluginRegistry {
         self.backends.keys().cloned().collect()
     }
 
+    #[must_use]
     pub fn generate(&self, backend_name: &str, lir: &LirFormat) -> Result<GeneratedCode> {
         let backend = self
             .get(backend_name)

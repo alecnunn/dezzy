@@ -2,6 +2,7 @@ use anyhow::Result;
 use dezzy_core::expr::{ComparisonOp, Expr, IndexExpr, Literal, LogicalOp};
 
 /// Generate C++ code for an expression
+#[must_use]
 pub fn generate_expr(expr: &Expr, array_name: &str) -> Result<String> {
     Ok(match expr {
         Expr::Variable(name) => {

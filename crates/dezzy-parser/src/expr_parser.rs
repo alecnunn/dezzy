@@ -6,6 +6,7 @@ use dezzy_core::expr::{ComparisonOp, Expr, IndexExpr, Literal, LogicalOp};
 ///   - "chunks[-1].chunk_type equals 'IEND'"
 ///   - "chunks[-1].chunk_type equals [73, 69, 78, 68]"
 ///   - "packet.flags equals 0x00 AND packet.length less-than 1500"
+#[must_use]
 pub fn parse_expr(input: &str) -> Result<Expr, ParseError> {
     let tokens = tokenize(input)?;
     parse_logical(&tokens, 0).map(|(expr, _)| expr)
@@ -317,7 +318,7 @@ mod tests {
 
     #[test]
     fn test_parse_simple_comparison() {
-        let expr = parse_expr("x equals 5").unwrap();
+        let expr = parse_expr("x equals 5").expect("should parse simple comparison");
         match expr {
             Expr::Comparison { left, op, right } => {
                 assert!(matches!(*left, Expr::Variable(_)));
@@ -330,7 +331,7 @@ mod tests {
 
     #[test]
     fn test_parse_field_access() {
-        let expr = parse_expr("chunk.type equals 'IEND'").unwrap();
+        let expr = parse_expr("chunk.type equals 'IEND'").expect("should parse field access expression");
         match expr {
             Expr::Comparison { left, op, right } => {
                 assert!(matches!(*left, Expr::FieldAccess { .. }));
@@ -343,7 +344,7 @@ mod tests {
 
     #[test]
     fn test_parse_array_index() {
-        let expr = parse_expr("chunks[-1].chunk_type equals [73, 69, 78, 68]").unwrap();
+        let expr = parse_expr("chunks[-1].chunk_type equals [73, 69, 78, 68]").expect("should parse array index expression");
         match expr {
             Expr::Comparison { left, op, right } => {
                 assert_eq!(op, ComparisonOp::Equals);

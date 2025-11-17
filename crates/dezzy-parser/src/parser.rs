@@ -7,6 +7,7 @@ use dezzy_core::hir::{
 };
 use std::collections::HashSet;
 
+#[must_use]
 pub fn parse_format(yaml_content: &str) -> Result<HirFormat, ParseError> {
     let yaml_format: YamlFormat = serde_yaml::from_str(yaml_content)?;
 
@@ -234,7 +235,8 @@ fn parse_assertion(
             });
         }
 
-        let (key, val) = mapping.iter().next().unwrap();
+        let (key, val) = mapping.iter().next()
+            .expect("mapping has exactly one element (checked above)");
         let key_str = key.as_str().ok_or_else(|| ParseError::InvalidValue {
             field: format!("assert for field '{}'", field_name),
             message: "Assertion key must be a string".to_string(),
@@ -514,7 +516,7 @@ types:
         let result = parse_format(yaml);
         assert!(result.is_ok());
 
-        let format = result.unwrap();
+        let format = result.expect("parse_format should succeed (checked above)");
         assert_eq!(format.name, "TestFormat");
         assert_eq!(format.version, Some("1.0".to_string()));
         assert_eq!(format.endianness, Endianness::Little);
@@ -525,10 +527,10 @@ types:
     fn test_parse_array_type() {
         let result = parse_array_type("u8[16]");
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), Some(("u8".to_string(), "16".to_string())));
+        assert_eq!(result.expect("parse_array_type should succeed (checked above)"), Some(("u8".to_string(), "16".to_string())));
 
         let result2 = parse_array_type("u8[length]");
         assert!(result2.is_ok());
-        assert_eq!(result2.unwrap(), Some(("u8".to_string(), "length".to_string())));
+        assert_eq!(result2.expect("parse_array_type should succeed (checked above)"), Some(("u8".to_string(), "length".to_string())));
     }
 }

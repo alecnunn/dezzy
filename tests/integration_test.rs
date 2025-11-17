@@ -20,7 +20,7 @@ types:
     let result = parse_format(yaml);
     assert!(result.is_ok());
 
-    let format = result.unwrap();
+    let format = result.expect("parse_format should succeed (checked above)");
     assert_eq!(format.name, "TestFormat");
     assert_eq!(format.version, Some("1.0".to_string()));
     assert_eq!(format.types.len(), 1);
@@ -64,6 +64,6 @@ types:
     let result = parse_format(yaml);
     assert!(result.is_ok());
 
-    let format = result.unwrap();
+    let format = result.expect("parse_format should succeed (checked above)");
     assert_eq!(format.types.len(), 1);
 }

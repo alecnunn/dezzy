@@ -1,20 +1,34 @@
+#![warn(clippy::all, clippy::pedantic)]
+#![allow(clippy::module_name_repetitions)]
+#![allow(clippy::too_many_lines)]
+
 mod expr_codegen;
 
 use dezzy_core::hir::{Endianness, HirAssertion, HirAssertValue, HirEnum, HirPrimitiveType};
-use dezzy_core::lir::{LirField, LirFormat, LirType};
+use dezzy_core::lir::{LirField, LirFormat, LirType, VarId};
 use expr_codegen::generate_expr;
 use serde_json;
 use std::alloc::{alloc as system_alloc, Layout};
+use std::collections::HashMap;
 use std::slice;
+use std::sync::Mutex;
 
-// Global allocator for string returns
-static mut LAST_ALLOCATION: Vec<u8> = Vec::new();
+// Global allocator for string returns - using Mutex for safe mutation
+static LAST_ALLOCATION: Mutex<Vec<u8>> = Mutex::new(Vec::new());
+
+// Constants for pointer/length packing in i64
+const PTR_LEN_SHIFT_BITS: i32 = 32;
+const PTR_MASK: i64 = 0xFFFF_FFFF;
+
+// Memory allocation alignment (byte-aligned)
+const WASM_ALLOC_ALIGNMENT: usize = 1;
 
 /// Allocate memory in WASM linear memory
 /// Returns pointer to allocated memory
 #[no_mangle]
 pub extern "C" fn alloc(size: i32) -> *mut u8 {
-    let layout = Layout::from_size_align(size as usize, 1).unwrap();
+    let layout = Layout::from_size_align(size as usize, WASM_ALLOC_ALIGNMENT)
+        .expect("layout with byte alignment should always succeed");
     unsafe { system_alloc(layout) }
 }
 
@@ -23,10 +37,9 @@ pub extern "C" fn alloc(size: i32) -> *mut u8 {
 #[no_mangle]
 pub extern "C" fn get_name() -> i64 {
     let name = b"python";
-    unsafe {
-        LAST_ALLOCATION = name.to_vec();
-        pack_ptr_len(LAST_ALLOCATION.as_ptr() as i32, LAST_ALLOCATION.len() as i32)
-    }
+    let mut alloc = LAST_ALLOCATION.lock().expect("mutex should not be poisoned");
+    *alloc = name.to_vec();
+    pack_ptr_len(alloc.as_ptr() as i32, alloc.len() as i32)
 }
 
 /// Get backend version
@@ -34,10 +47,9 @@ pub extern "C" fn get_name() -> i64 {
 #[no_mangle]
 pub extern "C" fn get_version() -> i64 {
     let version = b"0.1.0";
-    unsafe {
-        LAST_ALLOCATION = version.to_vec();
-        pack_ptr_len(LAST_ALLOCATION.as_ptr() as i32, LAST_ALLOCATION.len() as i32)
-    }
+    let mut alloc = LAST_ALLOCATION.lock().expect("mutex should not be poisoned");
+    *alloc = version.to_vec();
+    pack_ptr_len(alloc.as_ptr() as i32, alloc.len() as i32)
 }
 
 /// Get file extension for generated code
@@ -45,16 +57,15 @@ pub extern "C" fn get_version() -> i64 {
 #[no_mangle]
 pub extern "C" fn get_file_extension() -> i64 {
     let ext = b"py";
-    unsafe {
-        LAST_ALLOCATION = ext.to_vec();
-        pack_ptr_len(LAST_ALLOCATION.as_ptr() as i32, LAST_ALLOCATION.len() as i32)
-    }
+    let mut alloc = LAST_ALLOCATION.lock().expect("mutex should not be poisoned");
+    *alloc = ext.to_vec();
+    pack_ptr_len(alloc.as_ptr() as i32, alloc.len() as i32)
 }
 
 /// Pack pointer and length into a single i64
 /// Low 32 bits: pointer, High 32 bits: length
 fn pack_ptr_len(ptr: i32, len: i32) -> i64 {
-    ((len as i64) << 32) | (ptr as i64 & 0xFFFFFFFF)
+    ((len as i64) << PTR_LEN_SHIFT_BITS) | (ptr as i64 & PTR_MASK)
 }
 
 /// Generate Python code from LIR JSON
@@ -72,10 +83,9 @@ pub extern "C" fn generate(lir_ptr: i32, lir_len: i32) -> i64 {
         Ok(lir) => lir,
         Err(e) => {
             let error_msg = format!("Failed to parse LIR: {}", e);
-            unsafe {
-                LAST_ALLOCATION = error_msg.into_bytes();
-                return pack_ptr_len(LAST_ALLOCATION.as_ptr() as i32, LAST_ALLOCATION.len() as i32);
-            }
+            let mut alloc = LAST_ALLOCATION.lock().expect("mutex should not be poisoned");
+            *alloc = error_msg.into_bytes();
+            return pack_ptr_len(alloc.as_ptr() as i32, alloc.len() as i32);
         }
     };
 
@@ -84,18 +94,16 @@ pub extern "C" fn generate(lir_ptr: i32, lir_len: i32) -> i64 {
         Ok(code) => code,
         Err(e) => {
             let error_msg = format!("Code generation failed: {}", e);
-            unsafe {
-                LAST_ALLOCATION = error_msg.into_bytes();
-                return pack_ptr_len(LAST_ALLOCATION.as_ptr() as i32, LAST_ALLOCATION.len() as i32);
-            }
+            let mut alloc = LAST_ALLOCATION.lock().expect("mutex should not be poisoned");
+            *alloc = error_msg.into_bytes();
+            return pack_ptr_len(alloc.as_ptr() as i32, alloc.len() as i32);
         }
     };
 
     // Store result and return pointer
-    unsafe {
-        LAST_ALLOCATION = code.into_bytes();
-        pack_ptr_len(LAST_ALLOCATION.as_ptr() as i32, LAST_ALLOCATION.len() as i32)
-    }
+    let mut alloc = LAST_ALLOCATION.lock().expect("mutex should not be poisoned");
+    *alloc = code.into_bytes();
+    pack_ptr_len(alloc.as_ptr() as i32, alloc.len() as i32)
 }
 
 fn generate_enum(enum_def: &HirEnum) -> String {
@@ -259,7 +267,6 @@ fn lir_type_to_python(type_str: &str) -> String {
 }
 
 use dezzy_core::lir::LirOperation;
-use std::collections::HashMap;
 
 fn generate_assertion_check(field_name: &str, assertion: &HirAssertion) -> String {
     let mut code = String::new();
@@ -326,7 +333,7 @@ fn generate_assertion_check(field_name: &str, assertion: &HirAssertion) -> Strin
 
 fn generate_read_from_operations(
     operations: &[LirOperation],
-    var_to_field: &HashMap<usize, String>,
+    var_to_field: &HashMap<VarId, String>,
     fields: &[LirField],
     endianness: Endianness,
 ) -> Result<String, String> {

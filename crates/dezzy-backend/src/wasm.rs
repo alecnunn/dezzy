@@ -25,6 +25,7 @@ impl WasmBackend {
         }
     }
 
+    #[must_use]
     pub fn from_file(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
         let wasm_bytes = std::fs::read(path)

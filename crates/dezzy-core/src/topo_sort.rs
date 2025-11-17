@@ -10,6 +10,7 @@ pub enum TopoSortError {
     UnknownType(String),
 }
 
+#[must_use]
 pub fn topological_sort(format: &mut LirFormat) -> Result<(), TopoSortError> {
     let type_map: HashMap<String, &LirType> = format
         .types
@@ -131,12 +132,12 @@ mod tests {
         deps.insert("B".to_string(), HashSet::from(["A".to_string()]));
         deps.insert("C".to_string(), HashSet::from(["B".to_string()]));
 
-        let result = kahn_sort(&deps).unwrap();
+        let result = kahn_sort(&deps).expect("kahn_sort should succeed");
 
         assert_eq!(result.len(), 3);
-        let a_pos = result.iter().position(|x| x == "A").unwrap();
-        let b_pos = result.iter().position(|x| x == "B").unwrap();
-        let c_pos = result.iter().position(|x| x == "C").unwrap();
+        let a_pos = result.iter().position(|x| x == "A").expect("'A' should be in sorted result");
+        let b_pos = result.iter().position(|x| x == "B").expect("'B' should be in sorted result");
+        let c_pos = result.iter().position(|x| x == "C").expect("'C' should be in sorted result");
 
         assert!(a_pos < b_pos);
         assert!(b_pos < c_pos);
