@@ -73,6 +73,8 @@ pub struct HirField {
     pub assertion: Option<HirAssertion>,
     /// If set, skip/pad bytes instead of reading into field
     pub skip: Option<Skip>,
+    /// If set, field only exists when condition is true
+    pub if_condition: Option<Expr>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

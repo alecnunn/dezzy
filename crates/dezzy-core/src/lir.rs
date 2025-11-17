@@ -29,6 +29,8 @@ pub struct LirField {
     pub type_info: String,
     pub assertion: Option<HirAssertion>,
     pub skip: Option<String>,
+    /// True if field is conditional (has an if clause)
+    pub is_optional: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -201,5 +203,10 @@ pub enum LirOperation {
         dest: VarId,
         struct_var: VarId,
         field_index: usize,
+    },
+    /// Conditional execution block - operations execute only if condition is true
+    ConditionalBlock {
+        condition: Expr,
+        true_ops: Vec<LirOperation>,
     },
 }

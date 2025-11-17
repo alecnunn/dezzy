@@ -60,7 +60,16 @@ impl CppBackend {
             .fields
             .iter()
             .filter(|f| f.skip.is_none())  // Exclude skip fields from struct
-            .map(|f| (f.name.clone(), self.lir_type_to_cpp_type(&f.type_info)))
+            .map(|f| {
+                let cpp_type = self.lir_type_to_cpp_type(&f.type_info);
+                // Wrap conditional fields in std::optional
+                let final_type = if f.is_optional {
+                    format!("std::optional<{}>", cpp_type)
+                } else {
+                    cpp_type
+                };
+                (f.name.clone(), final_type)
+            })
             .collect();
 
         Ok(fields)
@@ -486,6 +495,30 @@ impl CppBackend {
                 add_assertion(&mut code, dest);
                 code
             }
+            LirOperation::ConditionalBlock { condition, true_ops } => {
+                use crate::expr_codegen::generate_expr;
+                let mut code = String::new();
+
+                // Generate condition expression
+                let condition_code = generate_expr(condition, "result").unwrap_or_else(|_| "false".to_string());
+                code.push_str(&format!("    if ({}) {{\n", condition_code));
+
+                // Generate code for operations within the conditional block
+                for inner_op in true_ops {
+                    let inner_code = self.generate_read_operation(inner_op, var_to_field, fields, enum_types, endianness)?;
+                    // Indent the inner code by one level
+                    for line in inner_code.lines() {
+                        if !line.is_empty() {
+                            code.push_str("    ");
+                            code.push_str(line);
+                            code.push('\n');
+                        }
+                    }
+                }
+
+                code.push_str("    }\n");
+                code
+            }
             _ => String::new(),
         })
     }
@@ -688,6 +721,41 @@ impl CppBackend {
             }
             LirOperation::WriteAlign { boundary } => {
                 format!("    writer.align({});\n", boundary)
+            }
+            LirOperation::ConditionalBlock { condition, true_ops } => {
+                use crate::expr_codegen::generate_expr;
+                let mut code = String::new();
+
+                // Generate condition expression (use empty string for context since we're in write mode)
+                let condition_code = generate_expr(condition, "").unwrap_or_else(|_| "false".to_string());
+                code.push_str(&format!("    if ({}) {{\n", condition_code));
+
+                // Build a local var_to_field map for operations in this block
+                let mut local_var_to_field = var_to_field.clone();
+
+                // Generate code for operations within the conditional block
+                for inner_op in true_ops {
+                    // Special handling for AccessField - update local mapping
+                    if let LirOperation::AccessField { dest, field_index, .. } = inner_op {
+                        if *field_index < fields.len() {
+                            local_var_to_field.insert(*dest, fields[*field_index].name.clone());
+                        }
+                        continue; // Don't generate code for AccessField itself
+                    }
+
+                    let inner_code = self.generate_write_operation(inner_op, &local_var_to_field, fields, enum_types, endianness)?;
+                    // Indent the inner code by one level
+                    for line in inner_code.lines() {
+                        if !line.is_empty() {
+                            code.push_str("    ");
+                            code.push_str(line);
+                            code.push('\n');
+                        }
+                    }
+                }
+
+                code.push_str("    }\n");
+                code
             }
             _ => String::new(),
         })

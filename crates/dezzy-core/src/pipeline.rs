@@ -94,6 +94,7 @@ impl Pipeline {
                 type_info,
                 assertion: field.assertion.clone(),
                 skip: skip_marker,
+                is_optional: field.if_condition.is_some(),
             });
 
             // If this is a skip/pad/align field, generate appropriate operation instead of read
@@ -115,7 +116,16 @@ impl Pipeline {
                 }
             } else {
                 let read_op = self.lower_read_type(&field.field_type, field_var, format, &field_name_to_var)?;
-                read_ops.push(read_op);
+
+                // Wrap in conditional block if field has an if clause
+                if let Some(ref condition) = field.if_condition {
+                    read_ops.push(LirOperation::ConditionalBlock {
+                        condition: condition.clone(),
+                        true_ops: vec![read_op],
+                    });
+                } else {
+                    read_ops.push(read_op);
+                }
             }
         }
 
@@ -151,14 +161,24 @@ impl Pipeline {
             }
 
             let field_var = self.next_var();
-            write_ops.push(LirOperation::AccessField {
+            let access_op = LirOperation::AccessField {
                 dest: field_var,
                 struct_var: write_param,
                 field_index: idx,
-            });
+            };
 
             let write_op = self.lower_write_type(&field.field_type, field_var, format, &field_name_to_var)?;
-            write_ops.push(write_op);
+
+            // Wrap in conditional block if field has an if clause
+            if let Some(ref condition) = field.if_condition {
+                write_ops.push(LirOperation::ConditionalBlock {
+                    condition: condition.clone(),
+                    true_ops: vec![access_op, write_op],
+                });
+            } else {
+                write_ops.push(access_op);
+                write_ops.push(write_op);
+            }
         }
 
         let mut all_ops = read_ops;

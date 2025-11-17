@@ -1,0 +1,26 @@
+name: SimpleConditional
+version: "1.0"
+endianness: little
+
+types:
+  - name: VersionedMessage
+    type: struct
+    doc: "Message with version-dependent fields"
+    fields:
+      - name: version
+        type: u8
+
+      - name: v1_data
+        type: u32
+        if: version equals 1
+
+      - name: v2_data
+        type: u64
+        if: version equals 2
+
+      - name: flags
+        type: u8
+
+      - name: extra_info
+        type: u16
+        if: flags greater-than 0

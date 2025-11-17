@@ -1,0 +1,31 @@
+name: ConditionalFormat
+version: "1.0"
+endianness: little
+
+types:
+  - name: Message
+    type: struct
+    doc: "Message with conditional fields based on version"
+    fields:
+      - name: version
+        type: u8
+        doc: "Protocol version number"
+
+      - name: legacy_data
+        type: u32
+        doc: "Legacy data field (only in version 1)"
+        if: version equals 1
+
+      - name: extended_data
+        type: u64
+        doc: "Extended data field (only in version 2 or higher)"
+        if: version greater-than-or-equal 2
+
+      - name: compression_method
+        type: u8
+        doc: "Compression method"
+
+      - name: compressed_data
+        type: u8[4]
+        doc: "Compressed data (only if compression_method is not 0)"
+        if: compression_method not-equals 0

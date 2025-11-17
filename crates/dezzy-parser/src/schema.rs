@@ -41,4 +41,6 @@ pub struct YamlField {
     pub skip: Option<String>,
     pub padding: Option<usize>,
     pub align: Option<usize>,
+    #[serde(rename = "if")]
+    pub if_condition: Option<String>,
 }

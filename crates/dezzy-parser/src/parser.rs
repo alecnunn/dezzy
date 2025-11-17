@@ -205,12 +205,19 @@ fn parse_field(
         None
     };
 
+    let if_condition = if let Some(ref if_str) = field.if_condition {
+        Some(parse_expr(if_str)?)
+    } else {
+        None
+    };
+
     Ok(HirField {
         name: field.name.clone(),
         doc: field.doc.clone(),
         field_type,
         assertion,
         skip,
+        if_condition,
     })
 }
 

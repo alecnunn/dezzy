@@ -12,6 +12,11 @@ pub fn generate_expr(expr: &Expr, array_name: &str) -> Result<String> {
                     return Ok(array_name.to_string());
                 }
             }
+            // If array_name is not empty and doesn't already contain a dot (simple context),
+            // prepend it to create a field reference (e.g., "result.version")
+            if !array_name.is_empty() && !array_name.contains('.') {
+                return Ok(format!("{}.{}", array_name, name));
+            }
             name.clone()
         },
 
