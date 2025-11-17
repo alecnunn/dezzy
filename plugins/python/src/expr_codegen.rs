@@ -8,6 +8,10 @@ pub fn generate_expr(expr: &Expr, array_name: &str) -> Result<String, String> {
             if array_name == name {
                 return Ok(array_name.to_string());
             }
+            // If array_name is "self", prepend it to create a field reference (e.g., "self.version")
+            if array_name == "self" {
+                return Ok(format!("{}.{}", array_name, name));
+            }
             name.clone()
         },
 
