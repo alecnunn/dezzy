@@ -1,0 +1,151 @@
+name: ZIP
+version: "1.0"
+endianness: little
+
+types:
+  # Local file header
+  - name: LocalFileHeader
+    type: struct
+    doc: "ZIP local file header (appears before each file's data)"
+    fields:
+      - name: signature
+        type: u32
+        assert: { equals: 0x04034b50 }
+        doc: "Local file header signature"
+      - name: version_needed
+        type: u16
+        doc: "Version needed to extract"
+      - name: flags
+        type: u16
+        doc: "General purpose bit flag"
+      - name: compression_method
+        type: u16
+        doc: "Compression method (0=none, 8=deflate)"
+      - name: last_mod_time
+        type: u16
+        doc: "Last modification time"
+      - name: last_mod_date
+        type: u16
+        doc: "Last modification date"
+      - name: crc32
+        type: u32
+        doc: "CRC-32 checksum"
+      - name: compressed_size
+        type: u32
+        doc: "Compressed size"
+      - name: uncompressed_size
+        type: u32
+        doc: "Uncompressed size"
+      - name: filename_length
+        type: u16
+        doc: "File name length"
+      - name: extra_field_length
+        type: u16
+        doc: "Extra field length"
+      - name: filename
+        type: u8[filename_length]
+        doc: "File name (variable length)"
+      - name: extra_field
+        type: u8[extra_field_length]
+        doc: "Extra field (variable length)"
+
+  # Central directory file header
+  - name: CentralDirectoryHeader
+    type: struct
+    doc: "ZIP central directory file header"
+    fields:
+      - name: signature
+        type: u32
+        assert: { equals: 0x02014b50 }
+        doc: "Central directory file header signature"
+      - name: version_made_by
+        type: u16
+        doc: "Version made by"
+      - name: version_needed
+        type: u16
+        doc: "Version needed to extract"
+      - name: flags
+        type: u16
+        doc: "General purpose bit flag"
+      - name: compression_method
+        type: u16
+        doc: "Compression method"
+      - name: last_mod_time
+        type: u16
+        doc: "Last modification time"
+      - name: last_mod_date
+        type: u16
+        doc: "Last modification date"
+      - name: crc32
+        type: u32
+        doc: "CRC-32 checksum"
+      - name: compressed_size
+        type: u32
+        doc: "Compressed size"
+      - name: uncompressed_size
+        type: u32
+        doc: "Uncompressed size"
+      - name: filename_length
+        type: u16
+        doc: "File name length"
+      - name: extra_field_length
+        type: u16
+        doc: "Extra field length"
+      - name: comment_length
+        type: u16
+        doc: "File comment length"
+      - name: disk_number_start
+        type: u16
+        doc: "Disk number where file starts"
+      - name: internal_attrs
+        type: u16
+        doc: "Internal file attributes"
+      - name: external_attrs
+        type: u32
+        doc: "External file attributes"
+      - name: local_header_offset
+        type: u32
+        doc: "Relative offset of local file header"
+      - name: filename
+        type: u8[filename_length]
+        doc: "File name"
+      - name: extra_field
+        type: u8[extra_field_length]
+        doc: "Extra field"
+      - name: comment
+        type: u8[comment_length]
+        doc: "File comment"
+
+  # End of central directory record
+  - name: EndOfCentralDirectory
+    type: struct
+    doc: "ZIP end of central directory record"
+    fields:
+      - name: signature
+        type: u32
+        assert: { equals: 0x06054b50 }
+        doc: "End of central directory signature"
+      - name: disk_number
+        type: u16
+        doc: "Number of this disk"
+      - name: disk_with_cd
+        type: u16
+        doc: "Disk where central directory starts"
+      - name: num_entries_this_disk
+        type: u16
+        doc: "Number of central directory entries on this disk"
+      - name: num_entries_total
+        type: u16
+        doc: "Total number of central directory entries"
+      - name: cd_size
+        type: u32
+        doc: "Size of central directory"
+      - name: cd_offset
+        type: u32
+        doc: "Offset of start of central directory"
+      - name: comment_length
+        type: u16
+        doc: "ZIP file comment length"
+      - name: comment
+        type: u8[comment_length]
+        doc: "ZIP file comment"
