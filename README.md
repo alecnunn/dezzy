@@ -143,21 +143,6 @@ struct Rectangle {
 
 Types are automatically ordered so dependencies come first, even if defined in reverse order in the YAML.
 
-## Project Structure
-
-```
-dezzy/
-├── crates/
-│   ├── dezzy-core/         # IR types and pipeline
-│   ├── dezzy-parser/       # YAML DSL parser
-│   ├── dezzy-backend/      # Backend plugin system
-│   ├── dezzy-backend-cpp/  # C++ code generator
-│   └── dezzy-cli/          # CLI tool
-├── docs/                   # Documentation
-├── examples/               # Example format definitions
-└── TASKS.md               # Project task tracking
-```
-
 ## Architecture
 
 Dezzy uses a multi-stage compilation pipeline:
